@@ -1,0 +1,27 @@
+{
+  "name": "openpaw",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.32.1",
+  "dependencies": {
+    "@ai-sdk/devtools": "^0.0.15",
+    "@ai-sdk/openai-compatible": "^2.0.35",
+    "@exalabs/ai-sdk": "^2.0.0",
+    "ai": "^6.0.116",
+    "fs": "0.0.1-security",
+    "grammy": "^1.41.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.9.3"
+  }
+}
