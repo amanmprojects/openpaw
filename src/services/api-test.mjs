@@ -1,24 +1,23 @@
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { generateText } from 'ai';
+
 export async function testApiConnection(baseUrl, apiKey, modelId) {
-  const url = `${baseUrl.replace(/\/$/, '')}/chat/completions`;
-  
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: modelId,
-      messages: [{ role: 'user', content: 'Hi' }],
-      max_tokens: 1
-    }),
-    signal: AbortSignal.timeout(10000)
+  const provider = createOpenAICompatible({
+    baseURL: baseUrl.replace(/\/$/, ''),
+    name: 'test-provider',
+    apiKey
   });
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => 'Unknown error');
-    throw new Error(`API test failed (${response.status}): ${errorText}`);
+  try {
+    await generateText({
+      model: provider.chatModel(modelId),
+      prompt: 'Hi',
+      maxTokens: 1,
+      abortSignal: AbortSignal.timeout(10000)
+    });
+    
+    return true;
+  } catch (error) {
+    throw new Error(`API test failed: ${error.message}`);
   }
-
-  return true;
 }
