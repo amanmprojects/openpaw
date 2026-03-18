@@ -1,6 +1,6 @@
 import { homedir } from 'os';
 import { join } from 'path';
-import { mkdir, readFile, writeFile } from 'fs/promises';
+import { mkdir, readFile, writeFile, access } from 'fs/promises';
 
 const CONFIG_DIR = join(homedir(), '.openpaw');
 const CONFIG_FILE = join(CONFIG_DIR, 'openpaw.json');
@@ -61,4 +61,13 @@ export async function mergeConfig(newData) {
 
 export function getConfigPath() {
   return CONFIG_FILE;
+}
+
+export async function configExists() {
+  try {
+    await access(CONFIG_FILE);
+    return true;
+  } catch {
+    return false;
+  }
 }

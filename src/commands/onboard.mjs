@@ -1,7 +1,7 @@
 import { confirm, input, password, select } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { generateProviderName } from '../utils/provider-name.mjs';
-import { mergeConfig, getConfigPath } from '../services/config.mjs';
+import { mergeConfig, writeConfig, configExists, getConfigPath } from '../services/config.mjs';
 import { testApiConnection } from '../services/api-test.mjs';
 import { testTelegramToken } from '../services/telegram-test.mjs';
 
@@ -126,6 +126,20 @@ export async function onboard() {
     process.exit(0);
   }
 
+  const hasExistingConfig = await configExists();
+  let shouldMerge = true;
+
+  if (hasExistingConfig) {
+    const configMode = await select({
+      message: 'Existing config found. How would you like to proceed?',
+      choices: [
+        { name: 'Merge (Recommended)', value: 'merge', description: 'Add new providers/channels to existing config' },
+        { name: 'Replace', value: 'replace', description: 'Overwrite existing config completely' }
+      ]
+    });
+    shouldMerge = configMode === 'merge';
+  }
+
   const modelConfig = await promptModelSetup();
   if (!modelConfig) {
     process.exit(1);
@@ -162,7 +176,11 @@ export async function onboard() {
     };
   }
 
-  await mergeConfig(config);
+  if (shouldMerge) {
+    await mergeConfig(config);
+  } else {
+    await writeConfig(config);
+  }
 
   console.log(chalk.bold.green('\n✓ Onboarding complete!'));
   console.log(chalk.dim(`  Config saved to: ${getConfigPath()}\n`));
