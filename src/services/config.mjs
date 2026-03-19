@@ -26,6 +26,8 @@ function deepMerge(target, source) {
 
 export function getDefaultConfig() {
   return {
+    currentWorkspace: join(homedir(), '.openpaw', 'workspace'),
+    ownerTelegramId: null,
     models: {
       mode: 'merge',
       providers: {}
