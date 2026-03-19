@@ -202,6 +202,105 @@ const [columns, rows] = useStdoutDimensions();
 <Box width={columns} height={rows}>...</Box>
 ```
 
+### Status Message (success/error/warning)
+```tsx
+const StatusMessage: React.FC<{ type: 'success' | 'error' | 'warning'; message: string }> = ({
+  type,
+  message,
+}) => {
+  const config = {
+    success: { icon: '✅', color: 'green' },
+    error: { icon: '❌', color: 'red' },
+    warning: { icon: '⚠️', color: 'yellow' },
+  };
+  const { icon, color } = config[type];
+
+  return (
+    <Box>
+      <Text color={color}>{icon} {message}</Text>
+    </Box>
+  );
+};
+```
+
+### Collapsible Section
+```tsx
+const CollapsibleSection: React.FC<{
+  title: string; isOpen: boolean; children: React.ReactNode
+}> = ({ title, isOpen, children }) => (
+  <Box flexDirection="column">
+    <Text bold>{isOpen ? '▼' : '▶'} {title}</Text>
+    {isOpen && <Box marginLeft={2}>{children}</Box>}
+  </Box>
+);
+```
+
+### List with Icons
+```tsx
+interface ListItem {
+  icon: string;
+  label: string;
+  value: string;
+}
+
+const List: React.FC<{ items: ListItem[] }> = ({ items }) => (
+  <Box flexDirection="column">
+    {items.map((item, i) => (
+      <Box key={i}>
+        <Text color="yellow">{item.icon} </Text>
+        <Text bold>{item.label}: </Text>
+        <Text>{item.value}</Text>
+      </Box>
+    ))}
+  </Box>
+);
+```
+
+### Custom useInterval Hook
+```tsx
+function useInterval(callback: () => void, delay: number | null) {
+  const savedCallback = useRef(callback);
+
+  useEffect(() => {
+    savedCallback.current = callback;
+  }, [callback]);
+
+  useEffect(() => {
+    if (delay === null) return;
+    const id = setInterval(() => savedCallback.current(), delay);
+    return () => clearInterval(id);
+  }, [delay]);
+}
+
+// Usage: custom spinner without ink-spinner
+const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const [frame, setFrame] = useState(0);
+useInterval(() => setFrame((prev) => (prev + 1) % frames.length), 80);
+```
+
+### Custom useAsync Hook
+```tsx
+function useAsync<T>(asyncFunction: () => Promise<T>) {
+  const [state, setState] = useState<{
+    loading: boolean; error: Error | null; data: T | null;
+  }>({ loading: true, error: null, data: null });
+
+  useEffect(() => {
+    let mounted = true;
+    asyncFunction()
+      .then((data) => {
+        if (mounted) setState({ loading: false, error: null, data });
+      })
+      .catch((error: Error) => {
+        if (mounted) setState({ loading: false, error, data: null });
+      });
+    return () => { mounted = false; };
+  }, [asyncFunction]);
+
+  return state;
+}
+```
+
 ---
 
 ## render() Key Options
@@ -240,3 +339,10 @@ stdin.write('q'); // simulate keypress
 5. **Don't use `console.log`** — use `useStdout().write()` or rely on `patchConsole`
 6. **Use `<Static>` for completed output** — don't re-render immutable items
 7. **Batch state updates** — separate `setState` calls cause separate renders
+8. **Don't use DOM APIs** (`document`, `window`) — no browser globals in terminal
+9. **Don't use CSS classes or inline styles** — use Ink props (`color`, `backgroundColor`, `borderStyle`, etc.)
+10. **Don't create deeply nested component trees** — keep layouts flat
+11. **Check `useEffect` dependency arrays** — missing deps cause stale closures; extra deps cause re-render loops
+12. **Guard async state updates** — check `mounted` flag before `setState` in async callbacks to avoid updates on unmounted components
+13. **Use `React.memo`** for expensive components that receive stable props
+14. **Wrap risky components in error boundaries** to prevent full app crashes
