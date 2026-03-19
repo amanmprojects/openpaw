@@ -2,8 +2,9 @@ import { confirm, input, password, select } from '@inquirer/prompts';
 import chalk from 'chalk';
 import { generateProviderName } from '../utils/provider-name.mjs';
 import { mergeConfig, writeConfig, configExists, getConfigPath } from '../services/config.mjs';
-import { testApiConnection } from '../services/api-test.mjs';
-import { testTelegramToken } from '../services/telegram-test.mjs';
+import { testApiConnection } from '../providers/test.mjs';
+import { testTelegramToken } from '../channels/telegram/test.mjs';
+import { createWorkspace, getDefaultWorkspacePath } from '../memory/workspace.mjs';
 
 const DEFAULT_MODEL_CONFIG = {
   reasoning: false,
@@ -47,7 +48,7 @@ async function promptModelSetup() {
       console.log(chalk.green('  ✓ Connection successful!\n'));
 
       const providerId = generateProviderName(baseUrl);
-      
+
       return {
         providerId,
         baseUrl,
@@ -56,7 +57,7 @@ async function promptModelSetup() {
       };
     } catch (error) {
       console.log(chalk.red(`  ✗ ${error.message}\n`));
-      
+
       const retry = await confirm({
         message: 'Try again?',
         default: true
@@ -96,11 +97,16 @@ async function promptChannelSetup() {
     try {
       const result = await testTelegramToken(botToken);
       console.log(chalk.green(`  ✓ Bot validated: @${result.botInfo.username}\n`));
-      
-      return { botToken, botInfo: result.botInfo };
+
+      const ownerTelegramId = await input({
+        message: 'Enter your Telegram user ID (get it from @userinfobot):',
+        validate: (v) => /^\d+$/.test(v.trim()) || 'Must be a numeric ID'
+      });
+
+      return { botToken, botInfo: result.botInfo, ownerTelegramId: ownerTelegramId.trim() };
     } catch (error) {
       console.log(chalk.red(`  ✗ ${error.message}\n`));
-      
+
       const retry = await confirm({
         message: 'Try again?',
         default: true
@@ -115,7 +121,7 @@ async function promptChannelSetup() {
 
 export async function onboard() {
   console.log(chalk.bold(chalk.yellow('Warning: OpenPaw is experimental software. Use at your own risk.')));
-  
+
   const proceed = await confirm({
     message: 'Proceed?',
     default: true
@@ -148,7 +154,7 @@ export async function onboard() {
   const channelConfig = await promptChannelSetup();
 
   const providerName = `${modelConfig.modelId} (Custom Provider)`;
-  
+
   const config = {
     models: {
       mode: 'merge',
@@ -174,6 +180,19 @@ export async function onboard() {
         botToken: channelConfig.botToken
       }
     };
+    config.ownerTelegramId = channelConfig.ownerTelegramId;
+  }
+
+  // Create workspace
+  console.log(chalk.bold.cyan('\n📁 Workspace Setup\n'));
+  const workspacePath = getDefaultWorkspacePath();
+  config.currentWorkspace = workspacePath;
+
+  try {
+    await createWorkspace(workspacePath);
+    console.log(chalk.green(`  ✓ Workspace created at ${workspacePath}\n`));
+  } catch (err) {
+    console.log(chalk.yellow(`  ⚠ Workspace already exists or could not be created: ${err.message}\n`));
   }
 
   if (shouldMerge) {
@@ -183,5 +202,6 @@ export async function onboard() {
   }
 
   console.log(chalk.bold.green('\n✓ Onboarding complete!'));
-  console.log(chalk.dim(`  Config saved to: ${getConfigPath()}\n`));
+  console.log(chalk.dim(`  Config saved to: ${getConfigPath()}`));
+  console.log(chalk.dim(`  Workspace at: ${workspacePath}\n`));
 }
