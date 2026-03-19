@@ -21,3 +21,13 @@ export async function testApiConnection(baseUrl, apiKey, modelId) {
     throw new Error(`API test failed: ${error.message}`);
   }
 }
+
+export function createProvider(config) {
+  const providerConfig = {
+    baseURL: config.baseUrl.replace(/\/$/, ''),
+    name: config.name || 'custom-provider',
+    apiKey: config.apiKey,
+  };
+
+  return createOpenAICompatible(providerConfig);
+}
