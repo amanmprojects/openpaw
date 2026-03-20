@@ -1,16 +1,31 @@
-/**
- * Normalize a Telegram message into AI SDK ModelMessage format.
- */
-export function normalizeMessage(message) {
-  const messages = [];
+import type { Message, ContentPart } from '../../types/index.js';
+
+type TelegramMessage = {
+  text?: string;
+  photo?: Array<{ file_id: string }>;
+  document?: {
+    file_id: string;
+    file_name?: string;
+    mime_type?: string;
+  };
+  voice?: {
+    duration: number;
+  };
+  video?: {
+    duration: number;
+  };
+  caption?: string;
+};
+
+export function normalizeMessage(message: TelegramMessage): Message[] {
+  const messages: Message[] = [];
 
   if (message.text) {
     messages.push({
       role: 'user',
       content: message.text,
     });
-  } else if (message.photo) {
-    // Photos come as an array of sizes, take the largest
+  } else if (message.photo && message.photo.length > 0) {
     const photo = message.photo[message.photo.length - 1];
     messages.push({
       role: 'user',
@@ -21,9 +36,9 @@ export function normalizeMessage(message) {
         },
         {
           type: 'image',
-          image: photo.file_id,
+          image: photo?.file_id,
         },
-      ],
+      ] as ContentPart[],
     });
   } else if (message.document) {
     messages.push({
@@ -39,7 +54,7 @@ export function normalizeMessage(message) {
           filename: message.document.file_name,
           mediaType: message.document.mime_type || 'application/octet-stream',
         },
-      ],
+      ] as ContentPart[],
     });
   } else if (message.voice) {
     messages.push({
@@ -54,7 +69,7 @@ export function normalizeMessage(message) {
           type: 'text',
           text: message.caption || `[Video: ${message.video.duration}s]`,
         },
-      ],
+      ] as ContentPart[],
     });
   } else {
     messages.push({
