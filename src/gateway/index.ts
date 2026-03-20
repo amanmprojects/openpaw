@@ -1,10 +1,10 @@
 import { readConfig } from '../services/config.js';
 import { loadEnabledChannels } from '../channels/registry.js';
 import { PsiAgent } from '../psi/index.js';
-import { SessionManager } from '../sessions/index.js';
+import { SessionManager, generateSessionId } from '../sessions/index.js';
 import { buildSystemPrompt } from '../psi/system-prompt.js';
 import { getDefaultWorkspacePath, workspaceExists, createWorkspace } from '../memory/workspace.js';
-import type { OpenPawConfig, ChannelAdapter, Session, SessionMeta, Message } from '../types/index.js';
+import type { OpenPawConfig, ChannelAdapter, Session, SessionMeta, SessionListItem, Message } from '../types/index.js';
 
 export class Gateway {
   config: OpenPawConfig | null = null;
@@ -206,5 +206,28 @@ export class Gateway {
 
   getWorkspacePath(): string {
     return this.workspacePath || '';
+  }
+
+  async listSessions(channel: string, limit: number = 10): Promise<SessionListItem[]> {
+    if (!this.sessions) return [];
+    return this.sessions.list(channel, limit);
+  }
+
+  async loadSession(sessionId: string, channel: string): Promise<Session | null> {
+    if (!this.sessions) return null;
+    return this.sessions.load(sessionId, channel);
+  }
+
+  async updateSessionTitle(sessionId: string, channel: string, title: string): Promise<void> {
+    if (!this.sessions) return;
+    const session = this.sessions.get(sessionId, channel);
+    if (session) {
+      session.title = title;
+      await this.sessions.save(session);
+    }
+  }
+
+  createSessionId(): string {
+    return generateSessionId();
   }
 }

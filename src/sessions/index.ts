@@ -1,5 +1,11 @@
-import { loadSession, saveSession, deleteSession as deleteSessionFile } from './store.js';
-import type { Session, SessionMeta, Message } from '../types/index.js';
+import { loadSession, saveSession, deleteSession as deleteSessionFile, listSessionsWithMeta } from './store.js';
+import type { Session, SessionMeta, Message, SessionListItem } from '../types/index.js';
+
+export function generateSessionId(): string {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 6);
+  return `${timestamp}-${random}`;
+}
 
 export class SessionManager {
   private workspacePath: string;
@@ -60,5 +66,23 @@ export class SessionManager {
     const cacheKey = `${channel}/${sessionId}`;
     this.sessions.delete(cacheKey);
     await deleteSessionFile(this.workspacePath, sessionId, channel);
+  }
+
+  async list(channel: string, limit: number = 10): Promise<SessionListItem[]> {
+    return listSessionsWithMeta(this.workspacePath, channel, limit);
+  }
+
+  async load(sessionId: string, channel: string): Promise<Session | null> {
+    const cacheKey = `${channel}/${sessionId}`;
+    
+    if (this.sessions.has(cacheKey)) {
+      return this.sessions.get(cacheKey)!;
+    }
+    
+    const session = await loadSession(this.workspacePath, sessionId, channel);
+    if (session) {
+      this.sessions.set(cacheKey, session);
+    }
+    return session;
   }
 }

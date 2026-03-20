@@ -1,19 +1,26 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
-import TextInput from 'ink-text-input';
+import {
+  UserMessage,
+  AssistantMessage,
+  ToolCallMessage,
+  ChatInput,
+  SystemMessage,
+  SessionList,
+} from './components/index.js';
 import type { Gateway } from '../../types/index.js';
 import type { TUIChannel } from './index.js';
-import type { StreamEvent, ToolCall } from '../../types/index.js';
+import type { StreamEvent, ToolCall, Message, AssistantMessage as AssistantMessageType, SessionListItem } from '../../types/index.js';
 
 interface AppProps {
   gateway: Gateway;
   tuiChannel: TUIChannel;
 }
 
-interface Message {
+interface ChatMessage {
+  id: number;
   role: 'user' | 'assistant' | 'system';
   content: string;
-  timestamp: string;
   reasoning?: string;
   toolCalls?: ToolCall[];
 }
@@ -21,35 +28,174 @@ interface Message {
 interface StreamState {
   text: string;
   reasoning: string;
-  toolName: string | null;
   toolCalls: ToolCall[];
 }
 
+function generateTitle(message: string): string {
+  const firstLine = message.split('\n')[0]?.trim() || '';
+  return firstLine.length > 40 ? firstLine.substring(0, 37) + '...' : firstLine;
+}
+
+function convertSessionToMessages(sessionMessages: Message[]): ChatMessage[] {
+  const messages: ChatMessage[] = [];
+  let id = 0;
+  
+  for (const msg of sessionMessages) {
+    if (msg.role === 'user') {
+      messages.push({
+        id: id++,
+        role: 'user',
+        content: typeof msg.content === 'string' ? msg.content : '',
+      });
+    } else if (msg.role === 'assistant') {
+      const assistantMsg = msg as AssistantMessageType;
+      messages.push({
+        id: id++,
+        role: 'assistant',
+        content: assistantMsg.content || '',
+        reasoning: assistantMsg.reasoning,
+        toolCalls: assistantMsg.toolCalls,
+      });
+    }
+  }
+  
+  return messages;
+}
+
+function ChatMessageView({ message }: { message: ChatMessage }): React.ReactElement {
+  if (message.role === 'user') {
+    return <UserMessage content={message.content} />;
+  }
+  
+  if (message.role === 'assistant') {
+    return (
+      <Box flexDirection="column" marginBottom={1}>
+        {message.reasoning && message.reasoning.length > 0 && (
+          <Box marginBottom={1} flexDirection="column">
+            <Text color="gray" dimColor italic>{message.reasoning}</Text>
+          </Box>
+        )}
+        {message.toolCalls && message.toolCalls.length > 0 && (
+          <Box flexDirection="column" marginBottom={1}>
+            {message.toolCalls.map((tc, i) => (
+              <ToolCallMessage 
+                key={`${tc.name}-${i}`}
+                name={tc.name} 
+                input={tc.input} 
+                output={tc.output} 
+              />
+            ))}
+          </Box>
+        )}
+        {message.content && <AssistantMessage content={message.content} />}
+      </Box>
+    );
+  }
+  
+  return <SystemMessage content={message.content} />;
+}
+
+function StreamingView({ stream }: { stream: StreamState }): React.ReactElement {
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      {stream.reasoning && stream.reasoning.length > 0 && (
+        <Box marginBottom={1} flexDirection="column">
+          <Text color="gray" dimColor italic>{stream.reasoning}</Text>
+        </Box>
+      )}
+      {stream.toolCalls && stream.toolCalls.length > 0 && (
+        <Box flexDirection="column" marginBottom={1}>
+          {stream.toolCalls.map((tc, i) => (
+            <ToolCallMessage 
+              key={`stream-${tc.name}-${i}`}
+              name={tc.name} 
+              input={tc.input} 
+              output={tc.output} 
+            />
+          ))}
+        </Box>
+      )}
+      {stream.text ? (
+        <AssistantMessage content={stream.text} />
+      ) : !stream.reasoning && stream.toolCalls.length === 0 ? (
+        <Box>
+          <Text color="yellow">Thinking...</Text>
+        </Box>
+      ) : null}
+    </Box>
+  );
+}
+
 export function App({ gateway, tuiChannel }: AppProps): React.ReactElement {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stream, setStream] = useState<StreamState>({
     text: '',
     reasoning: '',
-    toolName: null,
     toolCalls: [],
   });
+  const [nextId, setNextId] = useState(0);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [sessions, setSessions] = useState<SessionListItem[]>([]);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const messageAddedRef = useRef(false);
 
   const { exit } = useApp();
 
-  const addMessage = useCallback((role: 'user' | 'assistant' | 'system', content: string, extra?: Partial<Message>) => {
-    setMessages(prev => [...prev, {
-      role,
-      content,
-      timestamp: new Date().toISOString(),
-      ...extra,
-    }]);
-  }, []);
+  const loadSessions = useCallback(async () => {
+    try {
+      const sessionList = await gateway.listSessions('tui', 10);
+      setSessions(sessionList);
+      return sessionList;
+    } catch (err) {
+      console.error('Failed to load sessions:', err);
+      return [];
+    }
+  }, [gateway]);
+
+  const loadSessionMessages = useCallback(async (sessionId: string) => {
+    try {
+      const session = await gateway.loadSession(sessionId, 'tui');
+      if (session && session.messages.length > 0) {
+        const chatMessages = convertSessionToMessages(session.messages as Message[]);
+        setMessages(chatMessages);
+        setNextId(chatMessages.length);
+      } else {
+        setMessages([]);
+        setNextId(0);
+      }
+    } catch (err) {
+      console.error('Failed to load session:', err);
+      setMessages([]);
+      setNextId(0);
+    }
+  }, [gateway]);
 
   useEffect(() => {
-    // Primary: handle stream events for real-time updates
+    const init = async () => {
+      const sessionList = await loadSessions();
+      if (sessionList.length > 0 && sessionList[0]) {
+        const lastSessionId = sessionList[0].id;
+        setCurrentSessionId(lastSessionId);
+        await loadSessionMessages(lastSessionId);
+      } else {
+        const newSessionId = gateway.createSessionId();
+        setCurrentSessionId(newSessionId);
+      }
+      setIsInitialized(true);
+    };
+    init();
+  }, [loadSessions, loadSessionMessages, gateway]);
+
+  useEffect(() => {
+    if (currentSessionId && isInitialized) {
+      loadSessionMessages(currentSessionId);
+    }
+  }, [currentSessionId, isInitialized, loadSessionMessages]);
+
+  useEffect(() => {
     tuiChannel.setStreamEventHandler((event: StreamEvent) => {
       switch (event.type) {
         case 'text-delta':
@@ -68,21 +214,7 @@ export function App({ gateway, tuiChannel }: AppProps): React.ReactElement {
           if (event.toolName) {
             setStream(s => ({
               ...s,
-              toolName: event.toolName ?? null,
               toolCalls: [...s.toolCalls, { name: event.toolName ?? '', status: 'running' }],
-            }));
-          }
-          break;
-
-        case 'tool-call':
-          if (event.toolName) {
-            setStream(s => ({
-              ...s,
-              toolCalls: s.toolCalls.map(t =>
-                t.name === event.toolName && t.status === 'running'
-                  ? { ...t, input: event.input }
-                  : t
-              ),
             }));
           }
           break;
@@ -91,7 +223,6 @@ export function App({ gateway, tuiChannel }: AppProps): React.ReactElement {
           if (event.toolName) {
             setStream(s => ({
               ...s,
-              toolName: null,
               toolCalls: s.toolCalls.map(t =>
                 t.name === event.toolName && t.status === 'running'
                   ? { ...t, status: 'done' as const, output: event.output }
@@ -103,160 +234,140 @@ export function App({ gateway, tuiChannel }: AppProps): React.ReactElement {
 
         case 'finish':
           setStream(current => {
-            if (current.text) {
+            if (current.text || current.reasoning || current.toolCalls.length > 0) {
+              messageAddedRef.current = true;
               setMessages(prev => [...prev, {
+                id: nextId,
                 role: 'assistant',
                 content: current.text,
-                timestamp: new Date().toISOString(),
                 reasoning: current.reasoning || undefined,
                 toolCalls: current.toolCalls.length > 0 ? current.toolCalls : undefined,
               }]);
+              setNextId(prev => prev + 1);
             }
-            return { text: '', reasoning: '', toolName: null, toolCalls: [] };
+            return { text: '', reasoning: '', toolCalls: [] };
           });
           setIsProcessing(false);
+          loadSessions();
           break;
       }
     });
 
-    // Backup: handle non-streaming responses (fallback)
     tuiChannel.setResponseHandler((response: string) => {
-      // Only handle if not already handled by streaming
-      setStream(current => {
-        if (!current.text) {
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: response,
-            timestamp: new Date().toISOString(),
-          }]);
-          setIsProcessing(false);
-        }
-        return current;
-      });
+      if (messageAddedRef.current) {
+        messageAddedRef.current = false;
+        return;
+      }
+      setMessages(prev => [...prev, {
+        id: nextId,
+        role: 'assistant',
+        content: response,
+      }]);
+      setNextId(prev => prev + 1);
+      setIsProcessing(false);
+      loadSessions();
     });
-  }, [tuiChannel]);
+  }, [tuiChannel, nextId, loadSessions]);
 
   useInput((inputChar, key) => {
     if (key.ctrl && inputChar === 'c') exit();
-    if (key.ctrl && inputChar === 'l') setMessages([]);
+    if (key.ctrl && inputChar === 'l') {
+      clearCurrentChat();
+    }
+    if (key.escape && showSidebar) {
+      setShowSidebar(false);
+    }
   });
 
-  const handleSubmit = useCallback(() => {
-    if (!input.trim() || isProcessing) return;
+  const createNewChat = useCallback(() => {
+    const newSessionId = gateway.createSessionId();
+    setCurrentSessionId(newSessionId);
+    setMessages([]);
+    setNextId(0);
+    setShowSidebar(false);
+  }, [gateway]);
 
-    const userText = input.trim();
-    setInput('');
-    addMessage('user', userText);
+  const switchSession = useCallback((sessionId: string) => {
+    setCurrentSessionId(sessionId);
+    setShowSidebar(false);
+  }, []);
+
+  const clearCurrentChat = useCallback(() => {
+    if (currentSessionId) {
+      gateway.clearSession(currentSessionId);
+    }
+    setMessages([]);
+    setNextId(0);
+  }, [gateway, currentSessionId]);
+
+  const handleSubmit = useCallback(async (userText: string) => {
+    if (isProcessing || !currentSessionId) return;
+
+    setMessages(prev => [...prev, { id: nextId, role: 'user', content: userText }]);
+    setNextId(prev => prev + 1);
     setIsProcessing(true);
     setError(null);
-    setStream({ text: '', reasoning: '', toolName: null, toolCalls: [] });
+    setStream({ text: '', reasoning: '', toolCalls: [] });
+    messageAddedRef.current = false;
 
-    tuiChannel.sendMessage(userText).catch((err) => {
-      const error = err as Error;
-      setError(error.message);
+    if (messages.length === 0) {
+      const title = generateTitle(userText);
+      await gateway.updateSessionTitle(currentSessionId, 'tui', title);
+    }
+
+    tuiChannel.sendMessage(userText, currentSessionId).catch((err) => {
+      const errorMsg = (err as Error).message;
+      setError(errorMsg);
       setIsProcessing(false);
-      addMessage('system', `Error: ${error.message}`);
+      setMessages(prev => [...prev, { id: nextId, role: 'system', content: `Error: ${errorMsg}` }]);
+      setNextId(prev => prev + 1);
     });
-  }, [input, isProcessing, tuiChannel, addMessage]);
-
-  const hasStreamContent = stream.text || stream.reasoning || stream.toolName || stream.toolCalls.length > 0;
+  }, [isProcessing, tuiChannel, nextId, messages.length, gateway, currentSessionId]);
 
   const currentModel = gateway.getCurrentModel() || 'no model';
   const workspaceName = gateway.getWorkspaceName();
 
   return (
-    <Box flexDirection="column" height="100%">
-      <Box borderStyle="round" borderColor="cyan" paddingX={1}>
-        <Text bold color="cyan">🐾 OpenPaw TUI</Text>
-        <Text dimColor> — </Text>
-        <Text dimColor>{currentModel} | {workspaceName}</Text>
+    <Box flexDirection="column" minHeight={process.stdout.rows || 24}>
+      <Box borderStyle="round" borderColor="cyan" paddingX={1} flexShrink={0}>
+        <Text bold color="cyan">🐾 OpenPaw</Text>
+        <Text dimColor> — {currentModel} | {workspaceName}</Text>
         {isProcessing && <Text color="yellow"> ⏳</Text>}
       </Box>
 
-      <Box flexDirection="column" flexGrow={1} paddingX={1} paddingBottom={1}>
-        {messages.map((msg, i) => (
-          <Box key={i} flexDirection="column" marginBottom={1}>
-            {msg.reasoning && (
-              <Box paddingLeft={2}>
-                <Text dimColor italic>🧠 {truncate(msg.reasoning, 200)}</Text>
-              </Box>
-            )}
-            {msg.toolCalls && msg.toolCalls.length > 0 && (
-              <Box paddingLeft={2}>
-                <Text dimColor>🔧 {msg.toolCalls.map(t => t.name).join(', ')}</Text>
-              </Box>
-            )}
-            <Box>
-              <Text bold color={msg.role === 'user' ? 'blue' : msg.role === 'assistant' ? 'green' : 'yellow'}>
-                {(msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Psi' : 'System')}: 
-              </Text>
-              <Text> {msg.content}</Text>
-            </Box>
-          </Box>
-        ))}
-
-        {isProcessing && hasStreamContent && (
-          <Box key="streaming" flexDirection="column" marginTop={1} borderStyle="single" borderColor="gray" paddingX={1} paddingTop={0} paddingBottom={0}>
-            {stream.reasoning && (
-              <Box>
-                <Text dimColor italic>🧠 {truncate(stream.reasoning, 300)}</Text>
-              </Box>
-            )}
-            {stream.toolName && (
-              <Box>
-                <Text color="yellow">⟳ {stream.toolName}...</Text>
-              </Box>
-            )}
-            {stream.toolCalls.filter(t => t.status === 'done').map((tc, i) => (
-              <Box key={`tc-${i}`}>
-                <Text dimColor>✓ {tc.name}</Text>
-              </Box>
-            ))}
-            {stream.text && (
-              <Box flexDirection="column">
-                <Text bold color="green">Psi:</Text>
-                <Text>{stream.text}</Text>
-              </Box>
-            )}
-            {!stream.text && !stream.reasoning && !stream.toolName && (
-              <Box>
-                <Text color="yellow">Thinking...</Text>
-              </Box>
-            )}
-          </Box>
+      <Box flexDirection="row" flexGrow={1}>
+        {showSidebar && (
+          <SessionList
+            sessions={sessions}
+            currentSessionId={currentSessionId || ''}
+            onSelect={switchSession}
+            onNewChat={createNewChat}
+          />
         )}
 
-        {isProcessing && !hasStreamContent && (
-          <Box key="waiting" paddingLeft={2} marginTop={1}>
-            <Text color="yellow">Thinking...</Text>
-          </Box>
-        )}
+        <Box flexDirection="column" flexGrow={1} paddingX={1} paddingY={1}>
+          {messages.map((msg) => (
+            <ChatMessageView key={msg.id} message={msg} />
+          ))}
 
-        {error && (
-          <Box key="error" marginTop={1}>
-            <Text color="red">Error: {error}</Text>
-          </Box>
-        )}
+          {isProcessing && <StreamingView stream={stream} />}
+
+          {error && <SystemMessage content={`Error: ${error}`} />}
+        </Box>
       </Box>
 
-      <Box borderStyle="round" borderColor="gray" paddingX={1}>
-        <Text color="blue">&gt; </Text>
-        <TextInput
-          value={input}
-          onChange={setInput}
-          onSubmit={handleSubmit}
-          placeholder="Type a message..."
+      <Box flexShrink={0} width="100%">
+        <ChatInput 
+          onSubmit={handleSubmit} 
+          isDisabled={isProcessing} 
+          onToggleSidebar={() => setShowSidebar(prev => !prev)}
+          onNewChat={createNewChat}
         />
       </Box>
 
-      <Box paddingX={1}>
-        <Text dimColor>Ctrl+C: quit | Ctrl+L: clear | Enter: send</Text>
+      <Box paddingX={1} flexShrink={0}>
+        <Text dimColor>Ctrl+C: quit | Ctrl+L: clear | Ctrl+S: sidebar | Ctrl+N: new chat</Text>
       </Box>
     </Box>
   );
-}
-
-function truncate(str: string | undefined, maxLen: number): string {
-  if (!str) return '';
-  return str.length > maxLen ? str.substring(0, maxLen) + '...' : str;
 }

@@ -9,8 +9,17 @@ export interface Session {
   channel: string;
   messages: Message[];
   meta?: SessionMeta;
+  title?: string;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface SessionListItem {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt?: string;
+  messageCount: number;
 }
 
 export type Message = UserMessage | AssistantMessage | SystemMessage;

@@ -17,6 +17,14 @@ export interface PsiResponse {
   messages: unknown[];
 }
 
+export interface SessionListItem {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt?: string;
+  messageCount: number;
+}
+
 export interface Gateway {
   getCurrentModel(): string | null;
   getWorkspaceName(): string;
@@ -26,6 +34,10 @@ export interface Gateway {
   setSessionModel(sessionId: string, modelId: string): void;
   clearSession(sessionId: string): void;
   restart(): Promise<void>;
+  listSessions(channel: string, limit?: number): Promise<SessionListItem[]>;
+  loadSession(sessionId: string, channel: string): Promise<Session | null>;
+  updateSessionTitle(sessionId: string, channel: string, title: string): Promise<void>;
+  createSessionId(): string;
 }
 
 export interface Session {

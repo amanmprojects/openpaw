@@ -2,7 +2,8 @@ export type {
   ProviderConfig,
   ModelConfig,
   OpenPawConfig,
-  ChannelConfig
+  ChannelConfig,
+  ProviderType
 } from './config.js';
 
 export type {
@@ -16,6 +17,7 @@ export type {
 export type {
   Session,
   SessionMeta,
+  SessionListItem,
   Message,
   UserMessage,
   AssistantMessage,
@@ -31,3 +33,5 @@ export type {
 } from './psi.js';
 
 export type { ToolDefinition } from './tools.js';
+
+export type { ProviderAdapter } from './provider.js';

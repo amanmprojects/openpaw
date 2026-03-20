@@ -1,4 +1,7 @@
+export type ProviderType = 'openai-compatible' | 'gemini' | 'anthropic';
+
 export interface ProviderConfig {
+  type?: ProviderType;
   baseUrl: string;
   apiKey: string;
   api?: string;

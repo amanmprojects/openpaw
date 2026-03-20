@@ -1,16 +1,12 @@
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { ToolLoopAgent } from 'ai';
-import { getTools } from './tools.js';
+import { getTools } from './tools/index.js';
+import { loadProviders } from '../providers/registry.js';
 import type { OpenPawConfig, StreamCallbacks, ModelInfo } from '../types/index.js';
-
-interface ProviderData {
-  provider: ReturnType<typeof createOpenAICompatible>;
-  models: OpenPawConfig['models']['providers'][string]['models'];
-}
+import type { ProviderAdapter } from '../types/provider.js';
 
 export class PsiAgent {
   private config: OpenPawConfig;
-  private providers: Map<string, ProviderData>;
+  private providers: Map<string, ProviderAdapter>;
   private defaultModel: string | null;
 
   constructor(config: OpenPawConfig) {
@@ -19,34 +15,28 @@ export class PsiAgent {
     this.defaultModel = null;
   }
 
-  initProviders(): void {
+  async initProviders(): Promise<void> {
     if (!this.config.models?.providers) return;
 
-    for (const [providerId, providerConfig] of Object.entries(this.config.models.providers)) {
-      const provider = createOpenAICompatible({
-        baseURL: providerConfig.baseUrl.replace(/\/$/, ''),
-        name: providerId,
-        apiKey: providerConfig.apiKey,
-      });
-      this.providers.set(providerId, {
-        provider,
-        models: providerConfig.models,
-      });
-    }
+    this.providers = await loadProviders(this.config.models.providers);
 
     const first = this.providers.values().next().value;
-    if (first && first.models.length > 0) {
-      this.defaultModel = `${first.models[0]!.id}`;
+    if (first) {
+      const models = first.getModels();
+      if (models.length > 0) {
+        this.defaultModel = `${models[0]!.id}`;
+      }
     }
   }
 
-  getModel(modelId?: string): ReturnType<ProviderData['provider']['chatModel']> {
+  getModel(modelId?: string) {
     const targetModelId = modelId ?? this.defaultModel;
 
-    for (const [, data] of this.providers) {
-      const model = data.models.find(m => m.id === targetModelId);
+    for (const [, provider] of this.providers) {
+      const models = provider.getModels();
+      const model = models.find(m => m.id === targetModelId);
       if (model && targetModelId) {
-        return data.provider.chatModel(targetModelId);
+        return provider.chatModel(targetModelId);
       }
     }
 
@@ -179,8 +169,8 @@ export class PsiAgent {
 
   getAvailableModels(): ModelInfo[] {
     const models: ModelInfo[] = [];
-    for (const [providerId, data] of this.providers) {
-      for (const model of data.models) {
+    for (const [providerId, provider] of this.providers) {
+      for (const model of provider.getModels()) {
         models.push({
           id: model.id,
           name: model.name || model.id,

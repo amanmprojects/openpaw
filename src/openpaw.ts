@@ -1,9 +1,16 @@
 #!/usr/bin/env node
+import 'dotenv/config';
 import { Command } from 'commander';
 import { execSync } from 'child_process';
 import chalk from 'chalk';
 import { onboard } from './commands/onboard.js';
 import { startTUI } from './commands/tui.js';
+import {
+  handleGatewayStart,
+  handleGatewayStop,
+  handleGatewayRestart,
+  handleGatewayStatus,
+} from './commands/gateway.js';
 import { Gateway } from './gateway/index.js';
 
 process.on('SIGINT', () => {
@@ -82,6 +89,33 @@ program.command('kill')
     } catch {
       console.log(chalk.green('✓ No running instances found.'));
     }
+  });
+
+const gatewayCmd = program.command('gateway')
+  .description('Manage the gateway daemon');
+
+gatewayCmd.command('start')
+  .description('Start the gateway daemon')
+  .action(async () => {
+    await handleGatewayStart();
+  });
+
+gatewayCmd.command('stop')
+  .description('Stop the gateway daemon')
+  .action(async () => {
+    await handleGatewayStop();
+  });
+
+gatewayCmd.command('restart')
+  .description('Restart the gateway daemon')
+  .action(async () => {
+    await handleGatewayRestart();
+  });
+
+gatewayCmd.command('status')
+  .description('Show gateway status')
+  .action(async () => {
+    await handleGatewayStatus();
   });
 
 program.parse();

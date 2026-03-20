@@ -62,16 +62,24 @@ export class TUIChannel implements ChannelAdapter {
 
     if (this._pendingEvents.length === 0) return;
 
-    const latest = this._pendingEvents[this._pendingEvents.length - 1];
     const toolStarts = this._pendingEvents.filter(e => e.type === 'tool-start');
     const toolResults = this._pendingEvents.filter(e => e.type === 'tool-result');
+    const reasoningDeltas = this._pendingEvents.filter(e => e.type === 'reasoning-delta');
+    const textDeltas = this._pendingEvents.filter(e => e.type === 'text-delta');
+    const finishes = this._pendingEvents.filter(e => e.type === 'finish');
 
     if (this._onStreamEvent) {
       for (const event of toolStarts) this._onStreamEvent(event);
       for (const event of toolResults) this._onStreamEvent(event);
-      if (latest && (latest.type === 'reasoning-delta' || latest.type === 'text-delta' || latest.type === 'finish')) {
-        this._onStreamEvent(latest);
-      }
+      
+      const lastReasoning = reasoningDeltas[reasoningDeltas.length - 1];
+      if (lastReasoning) this._onStreamEvent(lastReasoning);
+      
+      const lastText = textDeltas[textDeltas.length - 1];
+      if (lastText) this._onStreamEvent(lastText);
+      
+      const lastFinish = finishes[finishes.length - 1];
+      if (lastFinish) this._onStreamEvent(lastFinish);
     }
 
     this._pendingEvents = [];
@@ -86,9 +94,10 @@ export class TUIChannel implements ChannelAdapter {
     this._onStreamEvent = handler;
   }
 
-  async sendMessage(text: string): Promise<void> {
+  async sendMessage(text: string, sessionId?: string): Promise<void> {
     if (!this.gateway) return;
+    const sid = sessionId || 'tui-local-main';
     const normalized = normalizeMessage({ text });
-    await this.gateway.handleMessage(this.name, 'tui-local-main', normalized);
+    await this.gateway.handleMessage(this.name, sid, normalized);
   }
 }
