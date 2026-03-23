@@ -2,7 +2,9 @@
   "name": "openpaw",
   "module": "src/index.tsx",
   "type": "module",
-  "private": true,
+  "bin": {
+    "openpaw": "./tui/openpaw.tsx"
+  },
   "scripts": {
     "dev": "bun run --watch src/index.tsx"
   },
@@ -15,6 +17,7 @@
   "dependencies": {
     "@opentui/core": "^0.1.90",
     "@opentui/react": "^0.1.90",
+    "commander": "^14.0.3",
     "react": "^19.2.4"
   }
 }
