@@ -11,6 +11,7 @@ import {
   type Personality,
   type ProviderConfig,
 } from "../config";
+import { ensureWorkspaceLayout } from "../agent/workspace-bootstrap";
 import {
   WelcomeScreen,
   InputScreen,
@@ -80,6 +81,7 @@ function OnboardingWizard({
       personality,
     };
     await saveConfig(config);
+    ensureWorkspaceLayout();
     dispatch({ type: "SET_STEP", step: "start-chat" });
   };
 
