@@ -9,7 +9,7 @@ import {
   PERSONALITIES,
   type OpenPawConfig,
   type ProviderConfig,
-} from "../config/config";
+} from "../config";
 import {
   WelcomeScreen,
   InputScreen,

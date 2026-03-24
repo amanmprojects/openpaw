@@ -1,7 +1,7 @@
 import { TextAttributes } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { type ReactNode, useEffect, useState } from "react";
-import type { OpenPawConfig } from "../../config/config";
+import type { OpenPawConfig } from "../../config";
 
 export const ONBOARD = {
   accent: "#7aa2f7",
