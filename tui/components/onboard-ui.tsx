@@ -1,6 +1,6 @@
-import { TextAttributes } from "@opentui/core";
+import { TextAttributes, type SelectOption } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { OpenPawConfig } from "../../config";
 
 export const ONBOARD = {
@@ -60,7 +60,8 @@ export function FooterHints({
   );
 }
 
-export function TextMenu({
+/** Vertical list using built-in `select` (navigation + selection handled by OpenTUI). */
+export function OnboardSelect({
   items,
   onSelect,
   onBack,
@@ -70,12 +71,14 @@ export function TextMenu({
   onBack?: () => void;
 }) {
   const renderer = useRenderer();
-  const [index, setIndex] = useState(0);
-  const itemsKey = items.join("\0");
-
-  useEffect(() => {
-    setIndex(0);
-  }, [itemsKey]);
+  const options: SelectOption[] = useMemo(
+    () =>
+      items.map((name) => ({
+        name,
+        description: "",
+      })),
+    [items],
+  );
 
   useKeyboard((key) => {
     if (key.name === "escape") {
@@ -84,30 +87,31 @@ export function TextMenu({
     }
     if (key.ctrl && key.name === "backspace" && onBack) {
       onBack();
-      return;
-    }
-    if (key.name === "up" || (key.name === "k" && !key.ctrl && !key.meta)) {
-      setIndex((i) => Math.max(0, i - 1));
-      return;
-    }
-    if (key.name === "down" || (key.name === "j" && !key.ctrl && !key.meta)) {
-      setIndex((i) => Math.min(items.length - 1, i + 1));
-      return;
-    }
-    if (key.name === "return") {
-      onSelect(index);
     }
   });
 
+  const rowCount = items.length;
+  const height = Math.min(Math.max(rowCount, 2), 14);
+
   return (
-    <box flexDirection="column" gap={0}>
-      {items.map((label, i) => (
-        <text key={`${label}-${i}`} fg={i === index ? ONBOARD.accent : ONBOARD.text}>
-          {i === index ? "> " : "  "}
-          {label}
-        </text>
-      ))}
-    </box>
+    <select
+      focused
+      width={ONBOARD.colWidth}
+      height={height}
+      options={options}
+      showDescription={false}
+      wrapSelection={false}
+      showScrollIndicator={rowCount > height}
+      selectedBackgroundColor="#414868"
+      selectedTextColor={ONBOARD.accent}
+      textColor={ONBOARD.text}
+      backgroundColor="transparent"
+      onSelect={(index) => {
+        if (index >= 0 && index < items.length) {
+          onSelect(index);
+        }
+      }}
+    />
   );
 }
 
@@ -154,6 +158,7 @@ export function InputScreen({
   onSubmit,
   onBack,
   placeholder,
+  password,
 }: {
   title: string;
   label: string;
@@ -162,6 +167,7 @@ export function InputScreen({
   onSubmit: () => void;
   onBack?: () => void;
   placeholder?: string;
+  password?: boolean;
 }) {
   const renderer = useRenderer();
   const [error, setError] = useState(false);
@@ -207,6 +213,7 @@ export function InputScreen({
         width={ONBOARD.inputWidth}
         textColor={ONBOARD.text}
         cursorColor={ONBOARD.accent}
+        {...(password ? { password: true } : {})}
       />
       {error && <text fg={ONBOARD.error}>This field is required</text>}
       <box flexDirection="column" marginTop={1}>
@@ -231,7 +238,7 @@ export function PersonalityScreen({
         <strong>Personality</strong>
       </text>
       <text fg={ONBOARD.text}>Choose a personality:</text>
-      <TextMenu items={options} onSelect={onSelect} onBack={onBack} />
+      <OnboardSelect items={options} onSelect={onSelect} onBack={onBack} />
       <box flexDirection="column" marginTop={1}>
         <FooterHints variant="menu" hasBack={!!onBack} />
       </box>
@@ -287,7 +294,7 @@ export function ConfirmScreen({
         </text>
         <text fg={ONBOARD.muted}>  {config.personality}</text>
       </box>
-      <TextMenu
+      <OnboardSelect
         items={menuItems}
         onSelect={(i) => (i === 0 ? onConfirm() : onRestart())}
         onBack={onBack}
@@ -314,7 +321,7 @@ export function StartChatScreen({
         <strong>Configuration saved!</strong>
       </text>
       <text fg={ONBOARD.text}>Start chatting now?</text>
-      <TextMenu
+      <OnboardSelect
         items={items}
         onSelect={(i) => (i === 0 ? onYes() : onNo())}
       />

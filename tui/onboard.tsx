@@ -1,13 +1,14 @@
 #!/usr/bin/env bun
 import { createCliRenderer } from "@opentui/core";
 import { createRoot, useKeyboard, useRenderer } from "@opentui/react";
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
 import {
   configExists,
   deleteConfig,
   saveConfig,
   PERSONALITIES,
   type OpenPawConfig,
+  type Personality,
   type ProviderConfig,
 } from "../config";
 import {
@@ -19,7 +20,6 @@ import {
 } from "./components/onboard-ui";
 
 type Step =
-  | "welcome"
   | "provider-baseUrl"
   | "provider-apiKey"
   | "provider-model"
@@ -28,20 +28,50 @@ type Step =
   | "confirm"
   | "start-chat";
 
+type WizardState = {
+  step: Step;
+  provider: ProviderConfig;
+  botToken: string;
+  personality: Personality;
+};
+
+type WizardAction =
+  | { type: "SET_STEP"; step: Step }
+  | { type: "PATCH_PROVIDER"; patch: Partial<ProviderConfig> }
+  | { type: "SET_BOT_TOKEN"; value: string }
+  | { type: "SET_PERSONALITY"; value: Personality };
+
+const initialWizardState: WizardState = {
+  step: "provider-baseUrl",
+  provider: { baseUrl: "", apiKey: "", model: "" },
+  botToken: "",
+  personality: "Assistant",
+};
+
+function wizardReducer(state: WizardState, action: WizardAction): WizardState {
+  switch (action.type) {
+    case "SET_STEP":
+      return { ...state, step: action.step };
+    case "PATCH_PROVIDER":
+      return { ...state, provider: { ...state.provider, ...action.patch } };
+    case "SET_BOT_TOKEN":
+      return { ...state, botToken: action.value };
+    case "SET_PERSONALITY":
+      return { ...state, personality: action.value };
+    default: {
+      const _exhaustive: never = action;
+      return _exhaustive;
+    }
+  }
+}
+
 function OnboardingWizard({
   onComplete,
 }: {
   onComplete: (startChat: boolean) => void;
 }) {
-  const [step, setStep] = useState<Step>("provider-baseUrl");
-  const [provider, setProvider] = useState<ProviderConfig>({
-    baseUrl: "",
-    apiKey: "",
-    model: "",
-  });
-  const [botToken, setBotToken] = useState("");
-  const [personality, setPersonality] =
-    useState<(typeof PERSONALITIES)[number]>("Assistant");
+  const [state, dispatch] = useReducer(wizardReducer, initialWizardState);
+  const { step, provider, botToken, personality } = state;
 
   const handleConfirm = async () => {
     const config: OpenPawConfig = {
@@ -50,7 +80,7 @@ function OnboardingWizard({
       personality,
     };
     await saveConfig(config);
-    setStep("start-chat");
+    dispatch({ type: "SET_STEP", step: "start-chat" });
   };
 
   switch (step) {
@@ -61,8 +91,12 @@ function OnboardingWizard({
           title="Provider Configuration"
           label="Enter the base URL for your LLM provider:"
           value={provider.baseUrl}
-          onChange={(v) => setProvider((p) => ({ ...p, baseUrl: v }))}
-          onSubmit={() => setStep("provider-apiKey")}
+          onChange={(v) =>
+            dispatch({ type: "PATCH_PROVIDER", patch: { baseUrl: v } })
+          }
+          onSubmit={() =>
+            dispatch({ type: "SET_STEP", step: "provider-apiKey" })
+          }
           placeholder="https://api.openai.com/v1"
         />
       );
@@ -73,10 +107,17 @@ function OnboardingWizard({
           title="Provider Configuration"
           label="Enter your API key:"
           value={provider.apiKey}
-          onChange={(v) => setProvider((p) => ({ ...p, apiKey: v }))}
-          onSubmit={() => setStep("provider-model")}
-          onBack={() => setStep("provider-baseUrl")}
+          onChange={(v) =>
+            dispatch({ type: "PATCH_PROVIDER", patch: { apiKey: v } })
+          }
+          onSubmit={() =>
+            dispatch({ type: "SET_STEP", step: "provider-model" })
+          }
+          onBack={() =>
+            dispatch({ type: "SET_STEP", step: "provider-baseUrl" })
+          }
           placeholder="sk-..."
+          password
         />
       );
     case "provider-model":
@@ -86,9 +127,13 @@ function OnboardingWizard({
           title="Provider Configuration"
           label="Enter the model name:"
           value={provider.model}
-          onChange={(v) => setProvider((p) => ({ ...p, model: v }))}
-          onSubmit={() => setStep("telegram")}
-          onBack={() => setStep("provider-apiKey")}
+          onChange={(v) =>
+            dispatch({ type: "PATCH_PROVIDER", patch: { model: v } })
+          }
+          onSubmit={() => dispatch({ type: "SET_STEP", step: "telegram" })}
+          onBack={() =>
+            dispatch({ type: "SET_STEP", step: "provider-apiKey" })
+          }
           placeholder="gpt-4o"
         />
       );
@@ -99,10 +144,15 @@ function OnboardingWizard({
           title="Channel Configuration"
           label="Enter your Telegram bot token:"
           value={botToken}
-          onChange={setBotToken}
-          onSubmit={() => setStep("personality")}
-          onBack={() => setStep("provider-model")}
+          onChange={(v) => dispatch({ type: "SET_BOT_TOKEN", value: v })}
+          onSubmit={() =>
+            dispatch({ type: "SET_STEP", step: "personality" })
+          }
+          onBack={() =>
+            dispatch({ type: "SET_STEP", step: "provider-model" })
+          }
           placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+          password
         />
       );
     case "personality":
@@ -111,10 +161,13 @@ function OnboardingWizard({
           key={step}
           options={[...PERSONALITIES]}
           onSelect={(index) => {
-            setPersonality(PERSONALITIES[index] ?? "Assistant");
-            setStep("confirm");
+            dispatch({
+              type: "SET_PERSONALITY",
+              value: PERSONALITIES[index] ?? "Assistant",
+            });
+            dispatch({ type: "SET_STEP", step: "confirm" });
           }}
-          onBack={() => setStep("telegram")}
+          onBack={() => dispatch({ type: "SET_STEP", step: "telegram" })}
         />
       );
     case "confirm":
@@ -127,8 +180,12 @@ function OnboardingWizard({
             personality,
           }}
           onConfirm={handleConfirm}
-          onRestart={() => setStep("provider-baseUrl")}
-          onBack={() => setStep("personality")}
+          onRestart={() =>
+            dispatch({ type: "SET_STEP", step: "provider-baseUrl" })
+          }
+          onBack={() =>
+            dispatch({ type: "SET_STEP", step: "personality" })
+          }
         />
       );
     case "start-chat":
@@ -139,8 +196,10 @@ function OnboardingWizard({
           onNo={() => onComplete(false)}
         />
       );
-    default:
-      return null;
+    default: {
+      const _exhaustive: never = step;
+      return _exhaustive;
+    }
   }
 }
 
@@ -167,8 +226,12 @@ function App() {
     }
   };
 
+  const dismissWelcome = useCallback(() => {
+    setShowWelcome(false);
+  }, []);
+
   if (showWelcome) {
-    return <WelcomeScreen onComplete={() => setShowWelcome(false)} />;
+    return <WelcomeScreen onComplete={dismissWelcome} />;
   }
 
   return <OnboardingWizard onComplete={handleOnboardingComplete} />;
