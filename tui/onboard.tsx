@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { createCliRenderer, TextAttributes } from "@opentui/core";
+import { createCliRenderer } from "@opentui/core";
 import { createRoot, useKeyboard, useRenderer } from "@opentui/react";
 import { useState, useEffect } from "react";
 import {
@@ -9,8 +9,14 @@ import {
   PERSONALITIES,
   type OpenPawConfig,
   type ProviderConfig,
-  type ChannelsConfig,
-} from "../services/config";
+} from "../config/config";
+import {
+  WelcomeScreen,
+  InputScreen,
+  PersonalityScreen,
+  ConfirmScreen,
+  StartChatScreen,
+} from "./components/onboard-ui";
 
 type Step =
   | "welcome"
@@ -21,334 +27,6 @@ type Step =
   | "personality"
   | "confirm"
   | "start-chat";
-
-const STEP_ORDER: Step[] = [
-  "provider-baseUrl",
-  "provider-apiKey",
-  "provider-model",
-  "telegram",
-  "personality",
-  "confirm",
-  "start-chat",
-];
-
-function getPreviousStep(currentStep: Step): Step | null {
-  const index = STEP_ORDER.indexOf(currentStep);
-  if (index <= 0) return null;
-  return STEP_ORDER[index - 1] ?? null;
-}
-
-function WelcomeScreen({ onComplete }: { onComplete: () => void }) {
-  const [countdown, setCountdown] = useState(1);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCountdown((c) => {
-        if (c <= 1) {
-          clearInterval(timer);
-          onComplete();
-          return 0;
-        }
-        return c - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [onComplete]);
-
-  useKeyboard((key) => {
-    if (key.name === "escape") {
-      const renderer = useRenderer();
-      renderer.destroy();
-    }
-  });
-
-  return (
-    <box alignItems="center" justifyContent="center" flexGrow={1}>
-      <box flexDirection="column" alignItems="center" gap={1}>
-        <ascii-font font="tiny" text="OpenPaw" color="#7aa2f7" />
-        <text attributes={TextAttributes.DIM}>Welcome to OpenPaw</text>
-        <text fg="#565f89">Starting in {countdown}...</text>
-      </box>
-    </box>
-  );
-}
-
-function InputScreen({
-  title,
-  label,
-  value,
-  onChange,
-  onSubmit,
-  onBack,
-  placeholder,
-}: {
-  title: string;
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  onSubmit: () => void;
-  onBack?: () => void;
-  placeholder?: string;
-}) {
-  const renderer = useRenderer();
-  const [error, setError] = useState(false);
-
-  useKeyboard((key) => {
-    if (key.name === "escape") {
-      renderer.destroy();
-    }
-    if (key.ctrl && key.name === "backspace" && onBack) {
-      onBack();
-    }
-  });
-
-  const handleSubmit = (submitted: string) => {
-    if (submitted.trim() === "") {
-      setError(true);
-      return;
-    }
-    setError(false);
-    // Keep parent state in sync: prop `value` can lag the native field by a frame.
-    if (submitted !== value) {
-      onChange(submitted);
-    }
-    onSubmit();
-  };
-
-  return (
-    <box flexGrow={1} alignItems="center" justifyContent="center">
-      <box flexDirection="column" gap={1} width={60}>
-        <text fg="#7aa2f7">
-          <strong>{title}</strong>
-        </text>
-        <text fg="#c0caf5">{label}</text>
-        <input
-          value={value}
-          onChange={(v) => {
-            setError(false);
-            onChange(v);
-          }}
-          onSubmit={handleSubmit}
-          placeholder={placeholder || ""}
-          focused
-          width={58}
-          textColor="#c0caf5"
-          cursorColor="#7aa2f7"
-        />
-        {error && <text fg="#f7768e">This field is required</text>}
-        <box flexDirection="column" marginTop={1}>
-          {onBack ? (
-            <>
-              <text fg="#565f89">Press Enter to continue</text>
-              <text fg="#565f89">Ctrl+Backspace to go back</text>
-              <text fg="#565f89">Esc to exit</text>
-            </>
-          ) : (
-            <>
-              <text fg="#565f89">Press Enter to continue</text>
-              <text fg="#565f89">Esc to exit</text>
-            </>
-          )}
-        </box>
-      </box>
-    </box>
-  );
-}
-
-function SelectScreen({
-  title,
-  label,
-  options,
-  onSelect,
-  onBack,
-}: {
-  title: string;
-  label: string;
-  options: { name: string; description?: string }[];
-  onSelect: (index: number) => void;
-  onBack?: () => void;
-}) {
-  const renderer = useRenderer();
-
-  useKeyboard((key) => {
-    if (key.name === "escape") {
-      renderer.destroy();
-    }
-    if (key.ctrl && key.name === "backspace" && onBack) {
-      onBack();
-    }
-  });
-
-  return (
-    <box flexGrow={1} alignItems="center" justifyContent="center">
-      <box flexDirection="column" gap={1} width={60}>
-        <text fg="#7aa2f7">
-          <strong>{title}</strong>
-        </text>
-        <text fg="#c0caf5">{label}</text>
-        <select
-          options={options.map((o) => ({
-            name: o.name,
-            description: o.description || "",
-          }))}
-          onSelect={(index) => onSelect(index)}
-          focused
-          height={Math.min(options.length + 2, 10)}
-          width={58}
-        />
-        <box flexDirection="column" marginTop={1}>
-          {onBack ? (
-            <>
-              <text fg="#565f89">Use arrows to navigate</text>
-              <text fg="#565f89">Press Enter to select</text>
-              <text fg="#565f89">Ctrl+Backspace to go back</text>
-              <text fg="#565f89">Esc to exit</text>
-            </>
-          ) : (
-            <>
-              <text fg="#565f89">Use arrows to navigate</text>
-              <text fg="#565f89">Press Enter to select</text>
-              <text fg="#565f89">Esc to exit</text>
-            </>
-          )}
-        </box>
-      </box>
-    </box>
-  );
-}
-
-function ConfirmScreen({
-  config,
-  onConfirm,
-  onRestart,
-  onBack,
-}: {
-  config: OpenPawConfig;
-  onConfirm: () => void;
-  onRestart: () => void;
-  onBack?: () => void;
-}) {
-  const renderer = useRenderer();
-
-  useKeyboard((key) => {
-    if (key.name === "escape") {
-      renderer.destroy();
-    }
-    if (key.ctrl && key.name === "backspace" && onBack) {
-      onBack();
-    }
-  });
-
-  return (
-    <box flexGrow={1} alignItems="center" justifyContent="center">
-      <box flexDirection="column" gap={1} width={60}>
-        <text fg="#7aa2f7">
-          <strong>Confirm Configuration</strong>
-        </text>
-        <text> </text>
-        <text fg="#c0caf5">
-          <strong>Provider:</strong>
-        </text>
-        <text fg="#a9b1d6"> Base URL: {config.provider.baseUrl}</text>
-        <text fg="#a9b1d6"> Model: {config.provider.model}</text>
-        <text fg="#a9b1d6">
-          {" "}
-          API Key: {"*".repeat(Math.min(config.provider.apiKey.length, 20))}
-        </text>
-        <text> </text>
-        {config.channels?.telegram && (
-          <>
-            <text fg="#c0caf5">
-              <strong>Telegram:</strong>
-            </text>
-            <text fg="#a9b1d6">
-              {" "}
-              Bot Token:{" "}
-              {"*".repeat(
-                Math.min(config.channels.telegram.botToken.length, 20),
-              )}
-            </text>
-            <text> </text>
-          </>
-        )}
-        <text fg="#c0caf5">
-          <strong>Personality:</strong>
-        </text>
-        <text fg="#a9b1d6"> {config.personality}</text>
-        <text> </text>
-        <select
-          options={[
-            {
-              name: "Save and continue",
-              description: "Store configuration and proceed",
-            },
-            { name: "Start over", description: "Restart the setup process" },
-          ]}
-          onSelect={(index) => (index === 0 ? onConfirm() : onRestart())}
-          focused
-          width={58}
-        />
-        <box flexDirection="column" marginTop={1}>
-          {onBack ? (
-            <>
-              <text fg="#565f89">Use arrows to navigate</text>
-              <text fg="#565f89">Press Enter to select</text>
-              <text fg="#565f89">Ctrl+Backspace to go back</text>
-              <text fg="#565f89">Esc to exit</text>
-            </>
-          ) : (
-            <>
-              <text fg="#565f89">Use arrows to navigate</text>
-              <text fg="#565f89">Press Enter to select</text>
-              <text fg="#565f89">Esc to exit</text>
-            </>
-          )}
-        </box>
-      </box>
-    </box>
-  );
-}
-
-function StartChatScreen({
-  onYes,
-  onNo,
-}: {
-  onYes: () => void;
-  onNo: () => void;
-}) {
-  const renderer = useRenderer();
-
-  useKeyboard((key) => {
-    if (key.name === "escape") {
-      renderer.destroy();
-    }
-  });
-
-  return (
-    <box flexGrow={1} alignItems="center" justifyContent="center">
-      <box flexDirection="column" gap={1} alignItems="center">
-        <text fg="#73daca">
-          <strong>Configuration saved!</strong>
-        </text>
-        <text> </text>
-        <text fg="#c0caf5">Would you like to start chatting now?</text>
-        <text> </text>
-        <select
-          options={[
-            {
-              name: "Yes, start chatting",
-              description: "Launch the chat interface",
-            },
-            { name: "No, exit for now", description: "Exit and chat later" },
-          ]}
-          onSelect={(index) => (index === 0 ? onYes() : onNo())}
-          focused
-          width={40}
-        />
-      </box>
-    </box>
-  );
-}
 
 function OnboardingWizard({
   onComplete,
@@ -379,6 +57,7 @@ function OnboardingWizard({
     case "provider-baseUrl":
       return (
         <InputScreen
+          key={step}
           title="Provider Configuration"
           label="Enter the base URL for your LLM provider:"
           value={provider.baseUrl}
@@ -390,6 +69,7 @@ function OnboardingWizard({
     case "provider-apiKey":
       return (
         <InputScreen
+          key={step}
           title="Provider Configuration"
           label="Enter your API key:"
           value={provider.apiKey}
@@ -402,6 +82,7 @@ function OnboardingWizard({
     case "provider-model":
       return (
         <InputScreen
+          key={step}
           title="Provider Configuration"
           label="Enter the model name:"
           value={provider.model}
@@ -414,6 +95,7 @@ function OnboardingWizard({
     case "telegram":
       return (
         <InputScreen
+          key={step}
           title="Channel Configuration"
           label="Enter your Telegram bot token:"
           value={botToken}
@@ -425,10 +107,9 @@ function OnboardingWizard({
       );
     case "personality":
       return (
-        <SelectScreen
-          title="Personality Configuration"
-          label="Select a personality for your assistant:"
-          options={PERSONALITIES.map((p) => ({ name: p }))}
+        <PersonalityScreen
+          key={step}
+          options={[...PERSONALITIES]}
           onSelect={(index) => {
             setPersonality(PERSONALITIES[index] ?? "Assistant");
             setStep("confirm");
@@ -439,6 +120,7 @@ function OnboardingWizard({
     case "confirm":
       return (
         <ConfirmScreen
+          key={step}
           config={{
             provider,
             channels: botToken ? { telegram: { botToken } } : undefined,
@@ -452,6 +134,7 @@ function OnboardingWizard({
     case "start-chat":
       return (
         <StartChatScreen
+          key={step}
           onYes={() => onComplete(true)}
           onNo={() => onComplete(false)}
         />
