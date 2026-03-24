@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 const CONFIG_DIR = join(homedir(), ".openpaw");
 const CONFIG_PATH = join(CONFIG_DIR, "config.yaml");
+const WORKSPACE_DIR = join(CONFIG_DIR, "workspace");
+const SESSIONS_DIR = join(WORKSPACE_DIR, "sessions");
 
 /**
  * Absolute path to the YAML config file, typically `~/.openpaw/config.yaml`.
@@ -38,5 +40,32 @@ export function configExists(): boolean {
 export function deleteConfig(): void {
   if (existsSync(CONFIG_PATH)) {
     unlinkSync(CONFIG_PATH);
+  }
+}
+
+/**
+ * OpenPaw workspace root, typically `~/.openpaw/workspace`.
+ */
+export function getWorkspaceRoot(): string {
+  return WORKSPACE_DIR;
+}
+
+/**
+ * Directory for persisted chat sessions, `~/.openpaw/workspace/sessions`.
+ */
+export function getSessionsDir(): string {
+  return SESSIONS_DIR;
+}
+
+/**
+ * Ensures workspace and `sessions/` exist on disk (directories only).
+ */
+export function ensureWorkspaceDirectories(): void {
+  ensureConfigDir();
+  if (!existsSync(WORKSPACE_DIR)) {
+    mkdirSync(WORKSPACE_DIR, { recursive: true });
+  }
+  if (!existsSync(SESSIONS_DIR)) {
+    mkdirSync(SESSIONS_DIR, { recursive: true });
   }
 }
