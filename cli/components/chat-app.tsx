@@ -45,16 +45,27 @@ function ChatMessageBlock({ line }: { line: ChatLine }) {
   );
 }
 
+const defaultWelcomeLines: ChatLine[] = [
+  {
+    role: "system",
+    text: "Session ready. Ask anything below.",
+  },
+];
+
 /**
  * Root chat view: one session, streaming deltas into the last assistant message.
  */
-export function ChatApp({ runtime }: { runtime: AgentRuntime }) {
-  const [lines, setLines] = useState<ChatLine[]>([
-    {
-      role: "system",
-      text: "Session ready. Ask anything below.",
-    },
-  ]);
+export function ChatApp({
+  runtime,
+  initialLines = [],
+}: {
+  runtime: AgentRuntime;
+  /** Prior transcript for `tui:main` when non-empty; otherwise a welcome line is shown. */
+  initialLines?: ChatLine[];
+}) {
+  const [lines, setLines] = useState<ChatLine[]>(() =>
+    initialLines.length > 0 ? initialLines : defaultWelcomeLines,
+  );
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -66,7 +77,6 @@ export function ChatApp({ runtime }: { runtime: AgentRuntime }) {
       }
 
       setBusy(true);
-      setDraft("");
       setLines((prev) => [...prev, { role: "user", text }]);
 
       const sessionId = tuiSessionKey();
@@ -125,7 +135,12 @@ export function ChatApp({ runtime }: { runtime: AgentRuntime }) {
         padding={1}
         minHeight={4}
       >
-        <scrollbox flexGrow={1} focused={false}>
+        <scrollbox
+          flexGrow={1}
+          focused={false}
+          stickyScroll
+          stickyStart="bottom"
+        >
           <box flexDirection="column" gap={0}>
             {lines.map((line, i) => (
               <ChatMessageBlock key={i} line={line} />
@@ -142,9 +157,11 @@ export function ChatApp({ runtime }: { runtime: AgentRuntime }) {
       <input
         focused
         value={draft}
+        onInput={setDraft}
         onChange={setDraft}
         onSubmit={(payload) => {
           const raw = typeof payload === "string" ? payload : draft;
+          setDraft("");
           void sendMessage(raw);
         }}
         placeholder={busy ? "Waiting for assistant…" : "Message"}
