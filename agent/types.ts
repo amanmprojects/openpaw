@@ -1,5 +1,5 @@
 /**
- * Opaque session identifier, e.g. `telegram:12345` or `cli:main`.
+ * Opaque session identifier, e.g. `telegram:12345`, `tui:main`, or `cli:main`.
  */
 export type SessionId = string;
 

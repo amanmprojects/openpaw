@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { program } from "commander";
-import { runTelegramGateway } from "../gateway/telegram";
+import { startGateway } from "../gateway";
+import { runOpenPawTui } from "./run-tui";
 import { handleOnboard } from "./onboard";
 
 program.version("0.1.0").description("OpenPaw");
@@ -8,15 +9,28 @@ program.version("0.1.0").description("OpenPaw");
 program
   .command("onboard")
   .description("Go through the onboarding setup")
-  // .option("-r, --reset", "Reset all configuration and start fresh")
   .action(handleOnboard);
 
-program
-  .command("gateway")
-  .description("Run the Telegram bot gateway (long polling)")
+const gateway = program.command("gateway").description("Run messaging channel adapters (shared agent runtime)");
+
+gateway
+  .command("start")
+  .description("Start all configured channels (e.g. Telegram when bot token is set)")
   .action(async () => {
     try {
-      await runTelegramGateway();
+      await startGateway();
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : e);
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("tui")
+  .description("Terminal chat UI (OpenTUI), separate from the gateway process")
+  .action(async () => {
+    try {
+      await runOpenPawTui();
     } catch (e) {
       console.error(e instanceof Error ? e.message : e);
       process.exitCode = 1;
