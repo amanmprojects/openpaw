@@ -77,6 +77,7 @@ export function ChatApp({
       }
 
       setBusy(true);
+      setDraft("");
       setLines((prev) => [...prev, { role: "user", text }]);
 
       const sessionId = tuiSessionKey();
@@ -161,7 +162,6 @@ export function ChatApp({
         onChange={setDraft}
         onSubmit={(payload) => {
           const raw = typeof payload === "string" ? payload : draft;
-          setDraft("");
           void sendMessage(raw);
         }}
         placeholder={busy ? "Waiting for assistant…" : "Message"}
