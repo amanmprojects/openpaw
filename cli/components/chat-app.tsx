@@ -410,12 +410,15 @@ export function ChatApp({
             left={0}
             right={0}
             bottom="100%"
-            marginBottom={1}
+            marginBottom={0}
             zIndex={10}
             flexDirection="column"
-            borderStyle="single"
+            borderStyle="rounded"
             borderColor={ONBOARD.hint}
-            padding={1}
+            paddingLeft={1}
+            paddingRight={1}
+            paddingTop={0}
+            paddingBottom={0}
             gap={0}
             backgroundColor="#1e2030"
           >
