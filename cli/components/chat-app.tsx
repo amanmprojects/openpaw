@@ -2,7 +2,7 @@
  * Terminal chat UI: streams assistant replies from AgentRuntime and shows
  * a bordered transcript with onboarding-aligned colors.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { AgentRuntime } from "../../agent/agent";
 import { loadSessionMessages } from "../../agent/session-store";
@@ -73,18 +73,40 @@ const defaultWelcomeLines: ChatLine[] = [
 ];
 
 /**
+ * True when the message is a slash command at the start (leading spaces allowed),
+ * not a `/path` in the middle of a sentence.
+ */
+function isSlashCommandLine(draft: string): boolean {
+  return draft.trimStart().startsWith("/");
+}
+
+/**
  * Returns slash commands whose name prefix matches the first segment after `/`.
  */
 function matchingSlashSuggestions(draft: string): { command: string; description: string }[] {
-  const firstSeg = draft.trim().split(/\s+/)[0] ?? "";
-  if (!firstSeg.startsWith("/")) {
+  if (!isSlashCommandLine(draft)) {
     return [];
   }
+  const lead = draft.trimStart();
+  const firstSeg = lead.split(/\s+/)[0] ?? "";
   const namePrefix = firstSeg.slice(1).toLowerCase();
   return SLASH_SUGGESTIONS.filter((s) => {
     const name = s.command.slice(1).toLowerCase();
     return namePrefix === "" || name.startsWith(namePrefix);
   });
+}
+
+/**
+ * Builds the text to send to handlers from draft + chosen command (keeps args after first token).
+ */
+function applyChosenSlashCommand(
+  draft: string,
+  chosen: { command: string },
+): string {
+  const lead = draft.trimStart();
+  const parts = lead.split(/\s+/).filter(Boolean);
+  const tail = parts.slice(1).join(" ").trim();
+  return tail.length > 0 ? `${chosen.command} ${tail}` : chosen.command;
 }
 
 /**
@@ -107,10 +129,20 @@ export function ChatApp({
   const [sessionId, setSessionId] = useState<SessionId>(initialSessionId);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [suggestionIndex, setSuggestionIndex] = useState(0);
 
   const suggestions = useMemo(
     () => (!busy ? matchingSlashSuggestions(draft) : []),
     [draft, busy],
+  );
+
+  useEffect(() => {
+    setSuggestionIndex(0);
+  }, [draft]);
+
+  const safeSuggestionIndex = Math.min(
+    suggestionIndex,
+    Math.max(0, suggestions.length - 1),
   );
 
   const applyTranscriptFromDisk = useCallback(
@@ -218,17 +250,28 @@ export function ChatApp({
   );
 
   useKeyboard((key) => {
-    if (key.name !== "tab" || suggestions.length === 0 || busy) {
+    if (busy || suggestions.length === 0) {
       return;
     }
-    const pick = suggestions[0]!;
-    const trimmed = draft.trimStart();
-    const parts = trimmed.split(/\s+/).filter(Boolean);
-    const tail = parts.slice(1).join(" ").trim();
-    const spacer = pick.command === "/resume" && !tail ? " " : "";
-    setDraft(
-      tail.length > 0 ? `${pick.command} ${tail}` : `${pick.command}${spacer}`,
-    );
+    if (key.name === "up") {
+      setSuggestionIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
+      return;
+    }
+    if (key.name === "down") {
+      setSuggestionIndex((i) => (i + 1) % suggestions.length);
+      return;
+    }
+    if (key.name !== "tab") {
+      return;
+    }
+    const pick =
+      suggestions[Math.min(suggestionIndex, suggestions.length - 1)] ??
+      suggestions[0]!;
+    let next = applyChosenSlashCommand(draft, pick);
+    if (pick.command === "/resume" && !restAfterCommand(next)) {
+      next = `${next} `;
+    }
+    setDraft(next);
   });
 
   const sendMessage = useCallback(
@@ -238,7 +281,45 @@ export function ChatApp({
         return;
       }
 
-      if (await handleReservedSlashCommand(text)) {
+      if (isSlashCommandLine(raw)) {
+        const token = firstCommandToken(text);
+        if (token && RESERVED_SLASH_COMMANDS.has(token)) {
+          if (await handleReservedSlashCommand(text)) {
+            setDraft("");
+            return;
+          }
+        }
+
+        const matches = matchingSlashSuggestions(raw);
+        if (matches.length === 0) {
+          const firstSeg = text.trimStart().split(/\s+/)[0] ?? "";
+          setLines((prev) => [
+            ...prev,
+            {
+              role: "system",
+              text: `Unknown command ${firstSeg}. Try /new, /sessions, or /resume.`,
+            },
+          ]);
+          setDraft("");
+          return;
+        }
+        if (matches.length > 1) {
+          setLines((prev) => [
+            ...prev,
+            {
+              role: "system",
+              text:
+                "Ambiguous command; type more characters (e.g. /sess) or use ↑/↓ and Tab to pick.",
+            },
+          ]);
+          setDraft("");
+          return;
+        }
+        const resolved = applyChosenSlashCommand(raw, matches[0]!);
+        if (await handleReservedSlashCommand(resolved)) {
+          setDraft("");
+          return;
+        }
         setDraft("");
         return;
       }
@@ -317,43 +398,55 @@ export function ChatApp({
       </box>
 
       <box flexDirection="column" gap={0} flexShrink={0}>
-        <text fg={ONBOARD.hint}>Enter to send · Tab completes slash commands</text>
-        <text fg={ONBOARD.hint}>Ctrl+C to quit</text>
+        <text fg={ONBOARD.hint}>
+          Enter send · Tab complete · ↑/↓ highlight · Ctrl+C quit
+        </text>
       </box>
 
-      {suggestions.length > 0 && (
-        <box
-          flexDirection="column"
-          flexShrink={0}
-          borderStyle="single"
-          borderColor={ONBOARD.hint}
-          padding={1}
-          gap={0}
-        >
-          {suggestions.map((s) => (
-            <box key={s.command} flexDirection="row" gap={0}>
-              <text fg={ONBOARD.accent}>
-                <strong>{s.command}</strong>
-              </text>
-              <text fg={ONBOARD.muted}>{` — ${s.description}`}</text>
-            </box>
-          ))}
-        </box>
-      )}
-
-      <input
-        focused
-        value={draft}
-        onInput={setDraft}
-        onChange={setDraft}
-        onSubmit={(payload) => {
-          const raw = typeof payload === "string" ? payload : draft;
-          void sendMessage(raw);
-        }}
-        placeholder={busy ? "Waiting for assistant…" : "Message"}
-        textColor={ONBOARD.text}
-        cursorColor={ONBOARD.accent}
-      />
+      <box position="relative" flexShrink={0} width="100%">
+        {suggestions.length > 0 && (
+          <box
+            position="absolute"
+            left={0}
+            right={0}
+            bottom="100%"
+            marginBottom={1}
+            zIndex={10}
+            flexDirection="column"
+            borderStyle="single"
+            borderColor={ONBOARD.hint}
+            padding={1}
+            gap={0}
+            backgroundColor="#1e2030"
+          >
+            {suggestions.map((s, i) => {
+              const active = i === safeSuggestionIndex;
+              return (
+                <box key={s.command} flexDirection="row" gap={0}>
+                  <text fg={active ? ONBOARD.accent : ONBOARD.muted}>
+                    <strong>{active ? "› " : "  "}</strong>
+                    <strong>{s.command}</strong>
+                  </text>
+                  <text fg={ONBOARD.muted}>{` — ${s.description}`}</text>
+                </box>
+              );
+            })}
+          </box>
+        )}
+        <input
+          focused
+          value={draft}
+          onInput={setDraft}
+          onChange={setDraft}
+          onSubmit={(payload) => {
+            const raw = typeof payload === "string" ? payload : draft;
+            void sendMessage(raw);
+          }}
+          placeholder={busy ? "Waiting for assistant…" : "Message"}
+          textColor={ONBOARD.text}
+          cursorColor={ONBOARD.accent}
+        />
+      </box>
     </box>
   );
 }
