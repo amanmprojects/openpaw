@@ -1,5 +1,5 @@
 /**
- * Maps persisted AI SDK UI messages into the simple transcript lines used by the TUI.
+ * Maps persisted AI SDK UI messages into {@link ChatLine} rows for the terminal chat transcript.
  */
 import type { DynamicToolUIPart, ToolUIPart, UIMessage, UITools } from "ai";
 import {

@@ -2,15 +2,36 @@
  * Terminal chat UI: streams assistant replies from AgentRuntime and shows
  * a bordered transcript with onboarding-aligned colors.
  */
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useKeyboard } from "@opentui/react";
 import type { AgentRuntime } from "../../agent/agent";
-import { tuiSessionKey } from "../../gateway/session-key";
+import { loadSessionMessages } from "../../agent/session-store";
+import type { SessionId } from "../../agent/types";
+import {
+  firstCommandToken,
+  RESERVED_SLASH_COMMANDS,
+  restAfterCommand,
+} from "../../gateway/slash-command-tokens";
+import {
+  setActiveTuiSession,
+  startNewTuiThread,
+} from "../../gateway/tui/tui-active-thread-store";
+import { listTuiSessions } from "../../gateway/tui/tui-session-discovery";
+import { formatTuiSessionLabel } from "../../gateway/tui/tui-session-label";
+import { formatTuiSessionsListMessage } from "../../gateway/tui/tui-sessions-list-message";
+import { uiMessagesToChatLines } from "../lib/ui-messages-to-chat-transcript";
 import { ONBOARD } from "./theme";
 
 export type ChatLine = {
   role: "user" | "assistant" | "system";
   text: string;
 };
+
+const SLASH_SUGGESTIONS: { command: string; description: string }[] = [
+  { command: "/new", description: "Start a new conversation thread" },
+  { command: "/sessions", description: "List saved sessions" },
+  { command: "/resume", description: "Resume session by number (see /sessions)" },
+];
 
 function ChatMessageBlock({ line }: { line: ChatLine }) {
   if (line.role === "user") {
@@ -25,8 +46,7 @@ function ChatMessageBlock({ line }: { line: ChatLine }) {
   }
 
   if (line.role === "assistant") {
-    const body =
-      line.text.length > 0 ? line.text : "…";
+    const body = line.text.length > 0 ? line.text : "…";
     return (
       <box flexDirection="column" gap={0} marginBottom={1}>
         <text fg={ONBOARD.accent}>
@@ -48,9 +68,24 @@ function ChatMessageBlock({ line }: { line: ChatLine }) {
 const defaultWelcomeLines: ChatLine[] = [
   {
     role: "system",
-    text: "Session ready. Ask anything below.",
+    text: "Session ready. Ask anything below. Commands: /new, /sessions, /resume N",
   },
 ];
+
+/**
+ * Returns slash commands whose name prefix matches the first segment after `/`.
+ */
+function matchingSlashSuggestions(draft: string): { command: string; description: string }[] {
+  const firstSeg = draft.trim().split(/\s+/)[0] ?? "";
+  if (!firstSeg.startsWith("/")) {
+    return [];
+  }
+  const namePrefix = firstSeg.slice(1).toLowerCase();
+  return SLASH_SUGGESTIONS.filter((s) => {
+    const name = s.command.slice(1).toLowerCase();
+    return namePrefix === "" || name.startsWith(namePrefix);
+  });
+}
 
 /**
  * Root chat view: one session, streaming deltas into the last assistant message.
@@ -58,16 +93,143 @@ const defaultWelcomeLines: ChatLine[] = [
 export function ChatApp({
   runtime,
   initialLines = [],
+  initialSessionId,
 }: {
   runtime: AgentRuntime;
-  /** Prior transcript for `tui:main` when non-empty; otherwise a welcome line is shown. */
+  /** Prior transcript for the active TUI session when non-empty; otherwise welcome lines are shown. */
   initialLines?: ChatLine[];
+  /** Active persistence session id from {@link getTuiPersistenceSessionId}. */
+  initialSessionId: SessionId;
 }) {
   const [lines, setLines] = useState<ChatLine[]>(() =>
     initialLines.length > 0 ? initialLines : defaultWelcomeLines,
   );
+  const [sessionId, setSessionId] = useState<SessionId>(initialSessionId);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const suggestions = useMemo(
+    () => (!busy ? matchingSlashSuggestions(draft) : []),
+    [draft, busy],
+  );
+
+  const applyTranscriptFromDisk = useCallback(
+    async (sid: SessionId) => {
+      const messages = await loadSessionMessages(sid, runtime.agent.tools);
+      const next = uiMessagesToChatLines(messages);
+      setLines(next.length > 0 ? next : defaultWelcomeLines);
+    },
+    [runtime.agent.tools],
+  );
+
+  const handleReservedSlashCommand = useCallback(
+    async (text: string): Promise<boolean> => {
+      const token = firstCommandToken(text);
+      if (!token || !RESERVED_SLASH_COMMANDS.has(token)) {
+        return false;
+      }
+
+      if (token === "/new") {
+        try {
+          const newId = await startNewTuiThread();
+          setSessionId(newId);
+          await applyTranscriptFromDisk(newId);
+          setLines((prev) => [
+            ...prev,
+            { role: "system", text: "Started a new conversation." },
+          ]);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          setLines((prev) => [...prev, { role: "system", text: `Error: ${msg}` }]);
+        }
+        return true;
+      }
+
+      if (token === "/sessions") {
+        try {
+          const entries = await listTuiSessions();
+          const body = formatTuiSessionsListMessage(entries, sessionId);
+          setLines((prev) => [...prev, { role: "system", text: body }]);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          setLines((prev) => [...prev, { role: "system", text: `Error: ${msg}` }]);
+        }
+        return true;
+      }
+
+      if (token === "/resume") {
+        const arg = restAfterCommand(text);
+        if (!/^\d+$/.test(arg)) {
+          setLines((prev) => [
+            ...prev,
+            {
+              role: "system",
+              text: "Usage: /resume 1 — use /sessions to see numbers.",
+            },
+          ]);
+          return true;
+        }
+        const n = Number.parseInt(arg, 10);
+        if (n < 1) {
+          setLines((prev) => [
+            ...prev,
+            {
+              role: "system",
+              text: "Usage: /resume 1 — use /sessions to see numbers.",
+            },
+          ]);
+          return true;
+        }
+        try {
+          const entries = await listTuiSessions();
+          if (entries.length === 0) {
+            setLines((prev) => [...prev, { role: "system", text: "No saved sessions yet." }]);
+            return true;
+          }
+          if (n > entries.length) {
+            setLines((prev) => [
+              ...prev,
+              {
+                role: "system",
+                text: `No session ${n}. Run /sessions (1–${entries.length}).`,
+              },
+            ]);
+            return true;
+          }
+          const chosen = entries[n - 1]!;
+          await setActiveTuiSession(chosen.sessionId);
+          setSessionId(chosen.sessionId);
+          await applyTranscriptFromDisk(chosen.sessionId);
+          const label = formatTuiSessionLabel(chosen.sessionId);
+          setLines((prev) => [
+            ...prev,
+            { role: "system", text: `Resumed session ${n} (${label}).` },
+          ]);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          setLines((prev) => [...prev, { role: "system", text: `Error: ${msg}` }]);
+        }
+        return true;
+      }
+
+      return false;
+    },
+    [applyTranscriptFromDisk, sessionId],
+  );
+
+  useKeyboard((key) => {
+    if (key.name !== "tab" || suggestions.length === 0 || busy) {
+      return;
+    }
+    const pick = suggestions[0]!;
+    const trimmed = draft.trimStart();
+    const parts = trimmed.split(/\s+/).filter(Boolean);
+    const tail = parts.slice(1).join(" ").trim();
+    const spacer = pick.command === "/resume" && !tail ? " " : "";
+    setDraft(
+      tail.length > 0 ? `${pick.command} ${tail}` : `${pick.command}${spacer}`,
+    );
+  });
 
   const sendMessage = useCallback(
     async (raw: string) => {
@@ -76,11 +238,15 @@ export function ChatApp({
         return;
       }
 
+      if (await handleReservedSlashCommand(text)) {
+        setDraft("");
+        return;
+      }
+
       setBusy(true);
       setDraft("");
       setLines((prev) => [...prev, { role: "user", text }]);
 
-      const sessionId = tuiSessionKey();
       let assistantText = "";
 
       setLines((prev) => [...prev, { role: "assistant", text: "" }]);
@@ -118,7 +284,7 @@ export function ChatApp({
         setBusy(false);
       }
     },
-    [busy, runtime],
+    [busy, handleReservedSlashCommand, runtime, sessionId],
   );
 
   return (
@@ -151,9 +317,29 @@ export function ChatApp({
       </box>
 
       <box flexDirection="column" gap={0} flexShrink={0}>
-        <text fg={ONBOARD.hint}>Enter to send</text>
+        <text fg={ONBOARD.hint}>Enter to send · Tab completes slash commands</text>
         <text fg={ONBOARD.hint}>Ctrl+C to quit</text>
       </box>
+
+      {suggestions.length > 0 && (
+        <box
+          flexDirection="column"
+          flexShrink={0}
+          borderStyle="single"
+          borderColor={ONBOARD.hint}
+          padding={1}
+          gap={0}
+        >
+          {suggestions.map((s) => (
+            <box key={s.command} flexDirection="row" gap={0}>
+              <text fg={ONBOARD.accent}>
+                <strong>{s.command}</strong>
+              </text>
+              <text fg={ONBOARD.muted}>{` — ${s.description}`}</text>
+            </box>
+          ))}
+        </box>
+      )}
 
       <input
         focused

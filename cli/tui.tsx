@@ -6,21 +6,26 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { loadSessionMessages } from "../agent/session-store";
 import { createGatewayContext } from "../gateway/bootstrap";
-import { tuiSessionKey } from "../gateway/session-key";
+import { getTuiPersistenceSessionId } from "../gateway/tui/tui-active-thread-store";
 import { ChatApp } from "./components/chat-app";
-import { uiMessagesToChatLines } from "./lib/ui-messages-to-chat-lines";
+import { uiMessagesToChatLines } from "./lib/ui-messages-to-chat-transcript";
 
 /**
  * Bootstraps config and workspace, then runs the OpenTUI chat until the user exits.
  */
 export async function runOpenPawTui(): Promise<void> {
   const ctx = await createGatewayContext();
-  const stored = await loadSessionMessages(tuiSessionKey(), ctx.runtime.agent.tools);
+  const sessionId = await getTuiPersistenceSessionId();
+  const stored = await loadSessionMessages(sessionId, ctx.runtime.agent.tools);
   const initialLines = uiMessagesToChatLines(stored);
   const renderer = await createCliRenderer({
     exitOnCtrlC: true,
   });
   createRoot(renderer).render(
-    <ChatApp initialLines={initialLines} runtime={ctx.runtime} />,
+    <ChatApp
+      initialSessionId={sessionId}
+      initialLines={initialLines}
+      runtime={ctx.runtime}
+    />,
   );
 }
