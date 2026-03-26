@@ -1,3 +1,7 @@
-export { cliSessionKey, telegramSessionKey } from "./session-key";
-export { deliverStreamingReply } from "./stream-delivery";
-export { runTelegramGateway } from "./telegram";
+export { cliSessionKey } from "./session-key";
+export {
+  deliverStreamingReply,
+  runTelegramGateway,
+  telegramSessionKey,
+} from "./telegram";
+export type { TelegramSessionListEntry } from "./telegram";
