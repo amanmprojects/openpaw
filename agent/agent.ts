@@ -63,7 +63,7 @@ export function createAgentRuntime(
 
 async function runTurnWithAgent(
   agent: OpenPawAgent,
-  { sessionId, userText, onTextDelta }: RunTurnParams,
+  { sessionId, userText, onTextDelta, onReasoningDelta }: RunTurnParams,
 ): Promise<{ text: string }> {
   const prior = await loadSessionMessages(sessionId, agent.tools);
   const userMessage = {
@@ -93,6 +93,8 @@ async function runTurnWithAgent(
       const d = chunk.delta;
       accumulated += d;
       onTextDelta?.(d);
+    } else if (chunk.type === "reasoning-delta" && "delta" in chunk) {
+      onReasoningDelta?.(chunk.delta);
     }
   }
 
