@@ -3,7 +3,7 @@
   "module": "src/index.tsx",
   "type": "module",
   "bin": {
-    "openpaw": "./tui/openpaw.tsx"
+    "openpaw": "./cli/openpaw.tsx"
   },
   "scripts": {
     "dev": "bun run --watch src/index.tsx"
