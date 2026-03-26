@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import type { SyntaxStyle } from "@opentui/core";
+import { TextAttributes, type SyntaxStyle } from "@opentui/core";
 import type { AgentRuntime } from "../../agent/agent";
 import { loadSessionMessages } from "../../agent/session-store";
 import type { SessionId } from "../../agent/types";
@@ -83,7 +83,7 @@ function ChatMessageBlock({
   if (line.role === "user") {
     return (
       <box flexDirection="column" gap={0} marginBottom={1}>
-        <text fg={ONBOARD.accent}>
+        <text fg={ONBOARD.roleLabel} attributes={TextAttributes.BOLD}>
           <strong>You</strong>
         </text>
         <box flexDirection="column" paddingTop={1}>
@@ -107,7 +107,7 @@ function ChatMessageBlock({
 
     return (
       <box flexDirection="column" gap={0} marginBottom={1}>
-        <text fg={ONBOARD.accent}>
+        <text fg={ONBOARD.roleLabel} attributes={TextAttributes.BOLD}>
           <strong>Assistant</strong>
         </text>
         {nonEmpty.length === 0 ? (
@@ -133,10 +133,10 @@ function ChatMessageBlock({
                   conceal
                   renderNode={markdownRenderNode}
                   tableOptions={{
-                    widthMode: "full",
-                    borderStyle: "rounded",
+                    widthMode: "content",
+                    borderStyle: "single",
                     borderColor: ONBOARD.hint,
-                    cellPadding: 1,
+                    cellPadding: 0,
                     selectable: true,
                   }}
                 />
@@ -176,9 +176,6 @@ function isSlashCommandLine(draft: string): boolean {
   return draft.trimStart().startsWith("/");
 }
 
-/**
- * Returns slash commands whose name prefix matches the first segment after `/`.
- */
 /** Minimum width passed to the markdown renderable so wrapping stays stable in tiny terminals. */
 const MIN_MARKDOWN_WIDTH = 20;
 
@@ -208,6 +205,9 @@ function transcriptMarkdownWidth(terminalWidth: number): number {
   return Math.max(MIN_MARKDOWN_WIDTH, terminalWidth - 6);
 }
 
+/**
+ * Returns slash commands whose name prefix matches the first segment after `/`.
+ */
 function matchingSlashSuggestions(draft: string): { command: string; description: string }[] {
   if (!isSlashCommandLine(draft)) {
     return [];

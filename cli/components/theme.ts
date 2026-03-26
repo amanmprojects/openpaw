@@ -4,6 +4,8 @@
  */
 export const ONBOARD = {
   accent: "#7aa2f7",
+  /** Role headers ("You", "Assistant") in chat; same hue as {@link accent}. */
+  roleLabel: "#7aa2f7",
   text: "#c0caf5",
   muted: "#a9b1d6",
   hint: "#565f89",

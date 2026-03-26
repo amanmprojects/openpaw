@@ -4,6 +4,11 @@
  * {@code renderNode} implementation that draws headings, paragraphs, lists, blockquotes,
  * and rules from Marked tokens using {@code TextRenderable} / {@code BoxRenderable},
  * while delegating fenced {@code code} and {@code table} to the default renderer.
+ *
+ * Maintainer note: one file by design (single integration surface). Inter-block vertical
+ * gap for prose is intentionally 0 here to match OpenTUI {@code getInterBlockMargin} for
+ * non-{@code code}/non-{@code table}/non-{@code blockquote} tokens; spacing after tables
+ * and code still comes from {@code defaultRender()}.
  */
 import type { Renderable, RenderContext, SyntaxStyle } from "@opentui/core";
 import {
@@ -16,11 +21,16 @@ import {
 } from "@opentui/core";
 import type { Token, Tokens } from "marked";
 
-/** Matches OpenTUI {@code MarkdownRenderable} {@code RenderNodeContext} for typing the callback. */
+/**
+ * Same fields as OpenTUI {@code MarkdownRenderable}'s {@code RenderNodeContext} (see
+ * {@code node_modules/@opentui/core/renderables/Markdown.d.ts}); duplicated here because
+ * {@code @opentui/core} does not export that type from the package root.
+ */
 export type OpenpawRenderNodeContext = {
   syntaxStyle: SyntaxStyle;
   conceal: boolean;
   concealCode: boolean;
+  /** Opaque here: {@code @opentui/core} does not export {@code TreeSitterClient} from the package root. */
   treeSitterClient?: unknown;
   defaultRender: () => Renderable | null;
 };
@@ -194,6 +204,24 @@ function mapCodeLang(lang?: string): string {
 }
 
 /**
+ * Marked sometimes emits a {@code text} block with only {@code .text} and no inline
+ * {@code .tokens}; use the plain string. Otherwise render inline tokens as styled text.
+ */
+function textBlockContent(
+  tok: Tokens.Text,
+  palette: OpenpawMarkdownPalette,
+  conceal: boolean,
+): string | StyledText {
+  const styled = styledParagraphContent(
+    tok.tokens ?? [],
+    palette,
+    conceal,
+    RGBA.fromHex(palette.text),
+  );
+  return tok.text.length > 0 && (!tok.tokens || tok.tokens.length === 0) ? tok.text : styled;
+}
+
+/**
  * Builds the {@code renderNode} callback for {@code <markdown>}; keeps Tree-sitter for
  * fenced code blocks and tables only.
  */
@@ -222,20 +250,19 @@ export function createOpenpawMarkdownRenderNode(palette: OpenpawMarkdownPalette)
     ctx: RenderContext,
     context: OpenpawRenderNodeContext,
     tokens: Token[],
-    marginBottom: number,
   ): Renderable {
     const col = new BoxRenderable(ctx, {
       id: nextId("col"),
       flexDirection: "column",
       gap: 0,
       width: "100%",
-      marginBottom,
+      marginBottom: 0,
     });
     for (const t of tokens) {
       if (t.type === "space") {
         continue;
       }
-      const inner = renderBlock(ctx, context, t, 0);
+      const inner = renderBlock(ctx, context, t);
       if (inner) {
         col.add(inner);
       }
@@ -248,7 +275,6 @@ export function createOpenpawMarkdownRenderNode(palette: OpenpawMarkdownPalette)
     ctx: RenderContext,
     tok: Tokens.Paragraph,
     context: OpenpawRenderNodeContext,
-    marginBottom: number,
   ): Renderable {
     const base = RGBA.fromHex(palette.text);
     const styled = styledParagraphContent(tok.tokens, palette, context.conceal, base);
@@ -256,7 +282,7 @@ export function createOpenpawMarkdownRenderNode(palette: OpenpawMarkdownPalette)
       id: nextId("p"),
       width: "100%",
       wrapMode: "word",
-      marginBottom,
+      marginBottom: 0,
       content: styled,
     });
   }
@@ -266,7 +292,6 @@ export function createOpenpawMarkdownRenderNode(palette: OpenpawMarkdownPalette)
     ctx: RenderContext,
     tok: Tokens.Heading,
     context: OpenpawRenderNodeContext,
-    marginBottom: number,
   ): Renderable {
     const fgHex = tok.depth <= 3 ? palette.accent : palette.muted;
     const fg = RGBA.fromHex(fgHex);
@@ -275,18 +300,18 @@ export function createOpenpawMarkdownRenderNode(palette: OpenpawMarkdownPalette)
       id: nextId("h"),
       width: "100%",
       wrapMode: "word",
-      marginBottom,
+      marginBottom: 0,
       content: styled,
       attributes: createTextAttributes({ bold: true }),
     });
   }
 
   /** Thematic break as a bottom border strip. */
-  function renderHr(ctx: RenderContext, marginBottom: number): Renderable {
+  function renderHr(ctx: RenderContext): Renderable {
     return new BoxRenderable(ctx, {
       id: nextId("hr"),
       width: "100%",
-      marginBottom,
+      marginBottom: 0,
       border: ["bottom"],
       borderStyle: "single",
       borderColor: RGBA.fromHex(palette.hint),
@@ -299,14 +324,13 @@ export function createOpenpawMarkdownRenderNode(palette: OpenpawMarkdownPalette)
     ctx: RenderContext,
     tok: Tokens.Blockquote,
     context: OpenpawRenderNodeContext,
-    marginBottom: number,
   ): Renderable {
-    const inner = renderBlockChildren(ctx, context, tok.tokens, 0);
+    const inner = renderBlockChildren(ctx, context, tok.tokens);
     const wrap = new BoxRenderable(ctx, {
       id: nextId("bq"),
       flexDirection: "row",
       width: "100%",
-      marginBottom,
+      marginBottom: 0,
       border: ["left"],
       borderStyle: "single",
       borderColor: RGBA.fromHex(palette.hint),
@@ -321,14 +345,13 @@ export function createOpenpawMarkdownRenderNode(palette: OpenpawMarkdownPalette)
     ctx: RenderContext,
     tok: Tokens.List,
     context: OpenpawRenderNodeContext,
-    marginBottom: number,
   ): Renderable {
     const col = new BoxRenderable(ctx, {
       id: nextId("ul"),
       flexDirection: "column",
       gap: 0,
       width: "100%",
-      marginBottom,
+      marginBottom: 0,
     });
     let index = typeof tok.start === "number" ? tok.start : 1;
     for (const item of tok.items) {
@@ -394,13 +417,13 @@ export function createOpenpawMarkdownRenderNode(palette: OpenpawMarkdownPalette)
   /** Block token inside a list item (paragraph, nested list, code, etc.). */
   function renderBlockInList(ctx: RenderContext, context: OpenpawRenderNodeContext, token: Token): Renderable | null {
     if (token.type === "paragraph") {
-      return renderParagraphBox(ctx, token as Tokens.Paragraph, context, 0);
+      return renderParagraphBox(ctx, token as Tokens.Paragraph, context);
     }
     if (token.type === "list") {
-      return renderListBox(ctx, token as Tokens.List, context, 0);
+      return renderListBox(ctx, token as Tokens.List, context);
     }
     if (token.type === "blockquote") {
-      return renderBlockquoteBox(ctx, token as Tokens.Blockquote, context, 0);
+      return renderBlockquoteBox(ctx, token as Tokens.Blockquote, context);
     }
     if (token.type === "code") {
       const codeTok = token as Tokens.Code;
@@ -416,16 +439,15 @@ export function createOpenpawMarkdownRenderNode(palette: OpenpawMarkdownPalette)
       });
     }
     if (token.type === "heading") {
-      return renderHeadingBox(ctx, token as Tokens.Heading, context, 0);
+      return renderHeadingBox(ctx, token as Tokens.Heading, context);
     }
     if (token.type === "text") {
       const t = token as Tokens.Text;
-      const styled = styledParagraphContent(t.tokens ?? [], palette, context.conceal, RGBA.fromHex(palette.text));
       return new TextRenderable(ctx, {
         id: nextId("li-fallback"),
         width: "100%",
         wrapMode: "word",
-        content: t.text.length > 0 && (!t.tokens || t.tokens.length === 0) ? t.text : styled,
+        content: textBlockContent(t, palette, context.conceal),
       });
     }
     if (token.type === "html") {
@@ -438,7 +460,7 @@ export function createOpenpawMarkdownRenderNode(palette: OpenpawMarkdownPalette)
         fg: RGBA.fromHex(palette.muted),
       });
     }
-    return renderBlock(ctx, context, token, 0);
+    return renderBlock(ctx, context, token);
   }
 
   /** Standalone {@code text} token at document level. */
@@ -447,15 +469,12 @@ export function createOpenpawMarkdownRenderNode(palette: OpenpawMarkdownPalette)
     tok: Tokens.Text,
     context: OpenpawRenderNodeContext,
   ): Renderable {
-    const styled = styledParagraphContent(tok.tokens ?? [], palette, context.conceal, RGBA.fromHex(palette.text));
-    const content =
-      tok.text.length > 0 && (!tok.tokens || tok.tokens.length === 0) ? tok.text : styled;
     return new TextRenderable(ctx, {
       id: nextId("text"),
       width: "100%",
       wrapMode: "word",
       marginBottom: 0,
-      content,
+      content: textBlockContent(tok, palette, context.conceal),
     });
   }
 
@@ -464,19 +483,18 @@ export function createOpenpawMarkdownRenderNode(palette: OpenpawMarkdownPalette)
     ctx: RenderContext,
     context: OpenpawRenderNodeContext,
     token: Token,
-    marginBottom: number,
   ): Renderable | null {
     switch (token.type) {
       case "paragraph":
-        return renderParagraphBox(ctx, token as Tokens.Paragraph, context, marginBottom);
+        return renderParagraphBox(ctx, token as Tokens.Paragraph, context);
       case "heading":
-        return renderHeadingBox(ctx, token as Tokens.Heading, context, marginBottom);
+        return renderHeadingBox(ctx, token as Tokens.Heading, context);
       case "blockquote":
-        return renderBlockquoteBox(ctx, token as Tokens.Blockquote, context, marginBottom);
+        return renderBlockquoteBox(ctx, token as Tokens.Blockquote, context);
       case "list":
-        return renderListBox(ctx, token as Tokens.List, context, marginBottom);
+        return renderListBox(ctx, token as Tokens.List, context);
       case "hr":
-        return renderHr(ctx, marginBottom);
+        return renderHr(ctx);
       case "text":
         return renderTopLevelText(ctx, token as Tokens.Text, context);
       default:
@@ -484,7 +502,10 @@ export function createOpenpawMarkdownRenderNode(palette: OpenpawMarkdownPalette)
     }
   }
 
-  /** OpenTUI {@code renderNode} callback: custom prose, default code/tables. */
+  /**
+   * OpenTUI {@code renderNode} callback: custom prose, default code/tables.
+   * Prose uses {@code marginBottom: 0} on blocks to match OpenTUI {@code getInterBlockMargin} for non-separate tokens.
+   */
   return function openpawMarkdownRenderNode(
     token: Token,
     context: OpenpawRenderNodeContext,
@@ -493,7 +514,7 @@ export function createOpenpawMarkdownRenderNode(palette: OpenpawMarkdownPalette)
       return context.defaultRender();
     }
     const ctx = resolveCtx(context);
-    const rendered = renderBlock(ctx, context, token, 1);
+    const rendered = renderBlock(ctx, context, token);
     if (rendered) {
       return rendered;
     }
