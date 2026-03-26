@@ -3,7 +3,8 @@
  * a bordered transcript with onboarding-aligned colors.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useKeyboard } from "@opentui/react";
+import { useKeyboard, useTerminalDimensions } from "@opentui/react";
+import type { SyntaxStyle } from "@opentui/core";
 import type { AgentRuntime } from "../../agent/agent";
 import { loadSessionMessages } from "../../agent/session-store";
 import type { SessionId } from "../../agent/types";
@@ -20,6 +21,8 @@ import { listTuiSessions } from "../../gateway/tui/tui-session-discovery";
 import { formatTuiSessionLabel } from "../../gateway/tui/tui-session-label";
 import { formatTuiSessionsListMessage } from "../../gateway/tui/tui-sessions-list-message";
 import type { AssistantSegment, ChatLine } from "../lib/chat-transcript-types";
+import { createOpenpawMarkdownRenderNode } from "../lib/markdown-render-node";
+import { createOnboardMarkdownSyntaxStyle } from "../lib/onboard-markdown-syntax-style";
 import { uiMessagesToChatLines } from "../lib/ui-messages-to-chat-transcript";
 import { ONBOARD } from "./theme";
 
@@ -53,7 +56,30 @@ const SLASH_SUGGESTIONS: { command: string; description: string }[] = [
   { command: "/resume", description: "Resume session by number (see /sessions)" },
 ];
 
-function ChatMessageBlock({ line }: { line: ChatLine }) {
+function assistantHasVisibleText(line: Extract<ChatLine, { role: "assistant" }>): boolean {
+  return line.segments.some((s) => s.kind === "text" && s.text.length > 0);
+}
+
+function ChatMessageBlock({
+  line,
+  lineIndex,
+  linesLength,
+  busy,
+  markdownWidth,
+  syntaxStyle,
+  markdownRenderNode,
+}: {
+  line: ChatLine;
+  lineIndex: number;
+  linesLength: number;
+  busy: boolean;
+  markdownWidth: number;
+  syntaxStyle: SyntaxStyle;
+  markdownRenderNode: ReturnType<typeof createOpenpawMarkdownRenderNode>;
+}) {
+  const isLastLine = lineIndex === linesLength - 1;
+  const isStreamingAssistant = busy && isLastLine && line.role === "assistant";
+
   if (line.role === "user") {
     return (
       <box flexDirection="column" gap={0} marginBottom={1}>
@@ -69,25 +95,59 @@ function ChatMessageBlock({ line }: { line: ChatLine }) {
 
   if (line.role === "assistant") {
     const nonEmpty = line.segments.filter((s) => s.text.length > 0);
+    let lastTextNonEmptyIndex = -1;
+    for (let i = nonEmpty.length - 1; i >= 0; i--) {
+      if (nonEmpty[i]!.kind === "text") {
+        lastTextNonEmptyIndex = i;
+        break;
+      }
+    }
+    const showSpinnerForMissingText =
+      isStreamingAssistant && !assistantHasVisibleText(line) && nonEmpty.length > 0;
+
     return (
       <box flexDirection="column" gap={0} marginBottom={1}>
         <text fg={ONBOARD.accent}>
           <strong>Assistant</strong>
         </text>
         {nonEmpty.length === 0 ? (
-          <text fg={ONBOARD.muted}>…</text>
-        ) : (
-          nonEmpty.map((s, i) =>
-            s.kind === "reasoning" ? (
-              <box key={i} flexDirection="column" paddingTop={1} paddingBottom={1}>
-                <text fg={ONBOARD.hint}>{s.text}</text>
-              </box>
-            ) : (
-              <text key={i} fg={ONBOARD.text}>
-                {s.text}
-              </text>
-            ),
+          isStreamingAssistant ? (
+            <BusySpinner />
+          ) : (
+            <text fg={ONBOARD.muted}>…</text>
           )
+        ) : (
+          <>
+            {nonEmpty.map((s, i) =>
+              s.kind === "reasoning" ? (
+                <box key={i} flexDirection="column" paddingTop={1} paddingBottom={1}>
+                  <text fg={ONBOARD.hint}>{s.text}</text>
+                </box>
+              ) : (
+                <markdown
+                  key={i}
+                  content={s.text}
+                  syntaxStyle={syntaxStyle}
+                  width={markdownWidth}
+                  streaming={isStreamingAssistant && i === lastTextNonEmptyIndex}
+                  conceal
+                  renderNode={markdownRenderNode}
+                  tableOptions={{
+                    widthMode: "full",
+                    borderStyle: "rounded",
+                    borderColor: ONBOARD.hint,
+                    cellPadding: 1,
+                    selectable: true,
+                  }}
+                />
+              ),
+            )}
+            {showSpinnerForMissingText ? (
+              <box paddingTop={1}>
+                <BusySpinner />
+              </box>
+            ) : null}
+          </>
         )}
       </box>
     );
@@ -119,6 +179,35 @@ function isSlashCommandLine(draft: string): boolean {
 /**
  * Returns slash commands whose name prefix matches the first segment after `/`.
  */
+/** Minimum width passed to the markdown renderable so wrapping stays stable in tiny terminals. */
+const MIN_MARKDOWN_WIDTH = 20;
+
+/** Braille animation frames for a compact loading indicator (OpenTUI dev skill pattern). */
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+
+/**
+ * Shows a small spinner while the assistant is generating but no visible reply text exists yet.
+ */
+function BusySpinner() {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setFrame((f) => (f + 1) % SPINNER_FRAMES.length), 80);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <text fg={ONBOARD.accent}>
+      {SPINNER_FRAMES[frame]} Thinking…
+    </text>
+  );
+}
+
+/**
+ * Horizontal space for markdown wrapping: root padding, transcript border, and inner padding.
+ */
+function transcriptMarkdownWidth(terminalWidth: number): number {
+  return Math.max(MIN_MARKDOWN_WIDTH, terminalWidth - 6);
+}
+
 function matchingSlashSuggestions(draft: string): { command: string; description: string }[] {
   if (!isSlashCommandLine(draft)) {
     return [];
@@ -166,6 +255,27 @@ export function ChatApp({
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
+
+  const { width: terminalWidth } = useTerminalDimensions();
+  const markdownWidth = transcriptMarkdownWidth(terminalWidth);
+  const markdownSyntaxStyle = useMemo(() => createOnboardMarkdownSyntaxStyle(), []);
+  const markdownPalette = useMemo(
+    () =>
+      ({
+        accent: ONBOARD.accent,
+        text: ONBOARD.text,
+        muted: ONBOARD.muted,
+        hint: ONBOARD.hint,
+        success: ONBOARD.success,
+        code: "#89ddff",
+        linkUrl: "#7dcfff",
+      }) as const,
+    [],
+  );
+  const markdownRenderNode = useMemo(
+    () => createOpenpawMarkdownRenderNode(markdownPalette),
+    [markdownPalette],
+  );
 
   const suggestions = useMemo(
     () => (!busy ? matchingSlashSuggestions(draft) : []),
@@ -437,7 +547,16 @@ export function ChatApp({
         >
           <box flexDirection="column" gap={0}>
             {lines.map((line, i) => (
-              <ChatMessageBlock key={i} line={line} />
+              <ChatMessageBlock
+                key={i}
+                line={line}
+                lineIndex={i}
+                linesLength={lines.length}
+                busy={busy}
+                markdownWidth={markdownWidth}
+                syntaxStyle={markdownSyntaxStyle}
+                markdownRenderNode={markdownRenderNode}
+              />
             ))}
           </box>
         </scrollbox>

@@ -21,7 +21,7 @@ Use this skill when:
 - Working with OpenTUI-based projects
 - Creating interactive terminal components (inputs, selects, lists, etc.)
 - Implementing keyboard navigation and event handling in terminals
-- Adding syntax highlighting or code display in terminal UIs
+- Adding syntax highlighting, **markdown document rendering**, or code display in terminal UIs
 - Creating diff viewers, text editors, or terminal-based forms
 - Styling terminal applications with borders, colors, and flexbox layouts
 - Debugging or enhancing OpenTUI applications
@@ -401,6 +401,41 @@ const syntaxStyle = SyntaxStyle.fromStyles({
   syntaxStyle={syntaxStyle}
 />
 ```
+
+### Markdown Component
+
+Render **markdown documents** (headings, lists, emphasis, tables, fenced code with Tree-sitter highlighting). This is separate from using `filetype="markdown"` on `<code>`, which only syntax-highlights markdown **source** as code.
+
+Requires a `SyntaxStyle` with at least `default` and markup-oriented keys (for example `markup.heading.1`, `markup.list`, `markup.raw`) plus any code tokens you want inside fenced blocks.
+
+```tsx
+import { SyntaxStyle, RGBA } from "@opentui/core"
+
+const mdStyle = SyntaxStyle.fromStyles({
+  default: { fg: RGBA.fromHex("#E6EDF3") },
+  "markup.heading.1": { fg: RGBA.fromHex("#58A6FF"), bold: true },
+  "markup.list": { fg: RGBA.fromHex("#FF7B72") },
+  "markup.raw": { fg: RGBA.fromHex("#A5D6FF") },
+})
+
+<markdown
+  content={"# Hello\n\n- one\n- two\n\n```ts\nconst x = 1\n```"}
+  syntaxStyle={mdStyle}
+  width={60}
+  conceal
+  streaming={false}
+  tableOptions={{
+    widthMode: "full",
+    borderStyle: "rounded",
+    cellPadding: 1,
+    selectable: true,
+  }}
+/>
+```
+
+**Streaming (e.g. LLM output):** set `streaming={true}` while appending chunks, then `streaming={false}` when the message is complete so the parser finalizes the trailing block (including tables). Set an explicit `width` so wrapping matches the terminal panel.
+
+Official reference: [Markdown component](https://opentui.com/docs/components/markdown/).
 
 ### Line Number Component
 
