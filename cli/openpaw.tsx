@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { program } from "commander";
 import { startGateway } from "../gateway";
-import { runOpenPawTui } from "./run-tui";
+import { runOpenPawTui } from "./tui";
 import { handleOnboard } from "./onboard";
 
 program.version("0.1.0").description("OpenPaw");
@@ -27,7 +27,7 @@ gateway
 
 program
   .command("tui")
-  .description("Terminal chat UI (OpenTUI), separate from the gateway process")
+  .description("Terminal chat UI (OpenTUI / local session), separate from the gateway process")
   .action(async () => {
     try {
       await runOpenPawTui();
