@@ -15,7 +15,10 @@ export {
   type AgentRuntime,
   type OpenPawTools,
 } from "./agent";
-export { ensureWorkspaceLayout } from "./workspace-bootstrap";
+export {
+  ensureWorkspaceLayout,
+  resetWorkspaceToOnboardingDefaults,
+} from "./workspace-bootstrap";
 export {
   DEFAULT_AGENTS_MD,
   DEFAULT_SOUL_MD,

@@ -3,8 +3,23 @@ import { program } from "commander";
 import { startGateway } from "../gateway";
 import { runOpenPawTui } from "./tui";
 import { handleOnboard } from "./onboard";
+import { handleReset } from "./reset";
 
 program.version("0.1.0").description("OpenPaw");
+
+program
+  .command("reset")
+  .description(
+    "Delete ~/.openpaw/workspace (sessions and files) and recreate onboarding default layout",
+  )
+  .action(() => {
+    try {
+      handleReset();
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : e);
+      process.exitCode = 1;
+    }
+  });
 
 program
   .command("onboard")

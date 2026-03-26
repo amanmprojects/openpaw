@@ -1,4 +1,4 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ensureWorkspaceDirectories,
@@ -38,4 +38,16 @@ export function ensureWorkspaceLayout(): void {
       writeFileSync(p, content, "utf8");
     }
   }
+}
+
+/**
+ * Deletes the entire workspace directory (sessions, markdown, and any other files), then
+ * recreates it with the same defaults as a fresh onboarding run.
+ */
+export function resetWorkspaceToOnboardingDefaults(): void {
+  const root = getWorkspaceRoot();
+  if (existsSync(root)) {
+    rmSync(root, { recursive: true, force: true });
+  }
+  ensureWorkspaceLayout();
 }
