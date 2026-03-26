@@ -28,5 +28,5 @@ description: Use when building or debugging Telegram bots with grammy in this re
 
 ## OpenPaw wiring
 
-- Gateway entry: [gateway/telegram.ts](gateway/telegram.ts)
-- Stream batching / edits: [gateway/stream-delivery.ts](gateway/stream-delivery.ts)
+- Gateway entry: [gateway/telegram/run-gateway.ts](gateway/telegram/run-gateway.ts)
+- Stream batching / edits: [gateway/telegram/stream-delivery.ts](gateway/telegram/stream-delivery.ts)
