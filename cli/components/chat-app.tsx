@@ -19,13 +19,33 @@ import {
 import { listTuiSessions } from "../../gateway/tui/tui-session-discovery";
 import { formatTuiSessionLabel } from "../../gateway/tui/tui-session-label";
 import { formatTuiSessionsListMessage } from "../../gateway/tui/tui-sessions-list-message";
+import type { AssistantSegment, ChatLine } from "../lib/chat-transcript-types";
 import { uiMessagesToChatLines } from "../lib/ui-messages-to-chat-transcript";
 import { ONBOARD } from "./theme";
 
-export type ChatLine = {
-  role: "user" | "assistant" | "system";
-  text: string;
-};
+export type { AssistantSegment, ChatLine } from "../lib/chat-transcript-types";
+
+/**
+ * Appends a stream delta to assistant segments, merging with the trailing segment when kinds match.
+ */
+function appendAssistantSegment(
+  segments: AssistantSegment[],
+  kind: AssistantSegment["kind"],
+  delta: string,
+): AssistantSegment[] {
+  const last = segments[segments.length - 1];
+  if (last?.kind === kind) {
+    return [...segments.slice(0, -1), { kind, text: last.text + delta }];
+  }
+  return [...segments, { kind, text: delta }];
+}
+
+/**
+ * True when an in-progress assistant row has no visible characters yet.
+ */
+function assistantLineIsEmpty(line: Extract<ChatLine, { role: "assistant" }>): boolean {
+  return line.segments.length === 0 || line.segments.every((s) => s.text.length === 0);
+}
 
 const SLASH_SUGGESTIONS: { command: string; description: string }[] = [
   { command: "/new", description: "Start a new conversation thread" },
@@ -40,19 +60,35 @@ function ChatMessageBlock({ line }: { line: ChatLine }) {
         <text fg={ONBOARD.accent}>
           <strong>You</strong>
         </text>
-        <text fg={ONBOARD.text}>{line.text}</text>
+        <box flexDirection="column" paddingTop={1}>
+          <text fg={ONBOARD.text}>{line.text}</text>
+        </box>
       </box>
     );
   }
 
   if (line.role === "assistant") {
-    const body = line.text.length > 0 ? line.text : "…";
+    const nonEmpty = line.segments.filter((s) => s.text.length > 0);
     return (
       <box flexDirection="column" gap={0} marginBottom={1}>
         <text fg={ONBOARD.accent}>
           <strong>Assistant</strong>
         </text>
-        <text fg={ONBOARD.muted}>{body}</text>
+        {nonEmpty.length === 0 ? (
+          <text fg={ONBOARD.muted}>…</text>
+        ) : (
+          nonEmpty.map((s, i) =>
+            s.kind === "reasoning" ? (
+              <box key={i} flexDirection="column" paddingTop={1} paddingBottom={1}>
+                <text fg={ONBOARD.hint}>{s.text}</text>
+              </box>
+            ) : (
+              <text key={i} fg={ONBOARD.text}>
+                {s.text}
+              </text>
+            ),
+          )
+        )}
       </box>
     );
   }
@@ -328,24 +364,34 @@ export function ChatApp({
       setDraft("");
       setLines((prev) => [...prev, { role: "user", text }]);
 
-      let assistantText = "";
+      let assistantSegments: AssistantSegment[] = [];
 
-      setLines((prev) => [...prev, { role: "assistant", text: "" }]);
+      setLines((prev) => [...prev, { role: "assistant", segments: [] }]);
 
       try {
         await runtime.runTurn({
           sessionId,
           userText: text,
-          onTextDelta: (delta) => {
-            assistantText += delta;
+          onReasoningDelta: (delta) => {
+            assistantSegments = appendAssistantSegment(assistantSegments, "reasoning", delta);
+            const snapshot = assistantSegments;
             setLines((prev) => {
               const next = [...prev];
               const last = next[next.length - 1];
               if (last?.role === "assistant") {
-                next[next.length - 1] = {
-                  role: "assistant",
-                  text: assistantText,
-                };
+                next[next.length - 1] = { role: "assistant", segments: snapshot };
+              }
+              return next;
+            });
+          },
+          onTextDelta: (delta) => {
+            assistantSegments = appendAssistantSegment(assistantSegments, "text", delta);
+            const snapshot = assistantSegments;
+            setLines((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant") {
+                next[next.length - 1] = { role: "assistant", segments: snapshot };
               }
               return next;
             });
@@ -356,7 +402,7 @@ export function ChatApp({
         setLines((prev) => {
           const next = [...prev];
           const last = next[next.length - 1];
-          if (last?.role === "assistant" && last.text === "") {
+          if (last?.role === "assistant" && assistantLineIsEmpty(last)) {
             next.pop();
           }
           return [...next, { role: "system", text: `Error: ${msg}` }];
@@ -413,12 +459,12 @@ export function ChatApp({
             marginBottom={0}
             zIndex={10}
             flexDirection="column"
-            borderStyle="rounded"
-            borderColor={ONBOARD.hint}
+            // borderStyle="rounded"
+            // borderColor={ONBOARD.hint}
             paddingLeft={1}
             paddingRight={1}
-            paddingTop={0}
-            paddingBottom={0}
+            paddingTop={1}
+            paddingBottom={1}
             gap={0}
             backgroundColor="#1e2030"
           >

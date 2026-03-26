@@ -9,7 +9,7 @@ import {
   isTextUIPart,
   isToolUIPart,
 } from "ai";
-import type { ChatLine } from "../components/chat-app";
+import type { AssistantSegment, ChatLine } from "./chat-transcript-types";
 
 const MAX_JSON_LEN = 200;
 
@@ -54,22 +54,64 @@ function formatToolPartSummary(part: ToolUIPart<UITools> | DynamicToolUIPart): s
 }
 
 /**
- * Converts one UI message's parts into display chunks (joined later with blank lines).
+ * Merges a new string into the tail segment when `kind` matches, else appends a segment.
  */
-function partsToDisplayChunks(parts: UIMessage["parts"]): string[] {
+function mergeAssistantSegment(
+  segments: AssistantSegment[],
+  kind: AssistantSegment["kind"],
+  text: string,
+): AssistantSegment[] {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return segments;
+  }
+  const last = segments[segments.length - 1];
+  if (last?.kind === kind) {
+    return [...segments.slice(0, -1), { kind, text: `${last.text}\n\n${trimmed}` }];
+  }
+  return [...segments, { kind, text: trimmed }];
+}
+
+/**
+ * Converts assistant message parts into ordered reasoning vs text segments for the TUI.
+ */
+function partsToAssistantSegments(parts: UIMessage["parts"]): AssistantSegment[] {
+  let segments: AssistantSegment[] = [];
+  for (const part of parts) {
+    if (isTextUIPart(part) && part.text.trim()) {
+      segments = mergeAssistantSegment(segments, "text", part.text);
+    } else if (isReasoningUIPart(part) && part.text.trim()) {
+      segments = mergeAssistantSegment(segments, "reasoning", part.text);
+    } else if (isFileUIPart(part)) {
+      segments = mergeAssistantSegment(
+        segments,
+        "text",
+        `[file: ${part.filename ?? part.mediaType}]`,
+      );
+    } else if (isToolUIPart(part)) {
+      segments = mergeAssistantSegment(segments, "text", formatToolPartSummary(part));
+    }
+  }
+  return segments;
+}
+
+/**
+ * Joins user/system message parts into a single transcript string (no reasoning label).
+ */
+function partsToPlainTranscriptText(parts: UIMessage["parts"]): string {
   const chunks: string[] = [];
   for (const part of parts) {
     if (isTextUIPart(part) && part.text.trim()) {
       chunks.push(part.text);
     } else if (isReasoningUIPart(part) && part.text.trim()) {
-      chunks.push(`(reasoning)\n${part.text}`);
+      chunks.push(part.text);
     } else if (isFileUIPart(part)) {
       chunks.push(`[file: ${part.filename ?? part.mediaType}]`);
     } else if (isToolUIPart(part)) {
       chunks.push(formatToolPartSummary(part));
     }
   }
-  return chunks;
+  return chunks.join("\n\n").trim();
 }
 
 /**
@@ -82,8 +124,15 @@ export function uiMessagesToChatLines(messages: UIMessage[]): ChatLine[] {
     if (msg.role !== "user" && msg.role !== "assistant" && msg.role !== "system") {
       continue;
     }
-    const chunks = partsToDisplayChunks(msg.parts);
-    const text = chunks.join("\n\n").trim();
+    if (msg.role === "assistant") {
+      const segments = partsToAssistantSegments(msg.parts);
+      if (segments.length === 0) {
+        continue;
+      }
+      out.push({ role: "assistant", segments });
+      continue;
+    }
+    const text = partsToPlainTranscriptText(msg.parts);
     if (!text) {
       continue;
     }

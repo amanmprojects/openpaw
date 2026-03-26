@@ -8,4 +8,6 @@ export type RunTurnParams = {
   userText: string;
   /** Called for streamed assistant text tokens (optional). */
   onTextDelta?: (delta: string) => void;
+  /** Called for streamed model reasoning tokens when the provider exposes them (optional). */
+  onReasoningDelta?: (delta: string) => void;
 };
