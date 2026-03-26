@@ -15,6 +15,7 @@ import { telegramSessionKey } from "./session-key";
 import { listTelegramSessionsForChat } from "./session-file-discovery";
 import { formatTelegramSessionLabel } from "./session-label";
 import { deliverStreamingReply } from "./stream-delivery";
+import { registerOpenPawBotCommands } from "./bot-commands";
 
 /**
  * Long-polling Telegram gateway: one OpenPaw session per chat (with optional threads), agent runs with streaming delivery.
@@ -36,15 +37,7 @@ export async function runTelegramGateway(): Promise<void> {
 
   const bot = new Bot(token);
 
-  try {
-    await bot.api.setMyCommands([
-      { command: "new", description: "Start a fresh conversation" },
-      { command: "sessions", description: "List saved sessions for this chat" },
-      { command: "resume", description: "Resume a session by number from /sessions" },
-    ]);
-  } catch {
-    // menu is optional if the API call fails
-  }
+  await registerOpenPawBotCommands(bot);
 
   bot.command("new", async (ctx) => {
     const chatId = ctx.chat?.id;
