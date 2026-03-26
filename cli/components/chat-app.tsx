@@ -192,7 +192,7 @@ function BusySpinner() {
     return () => clearInterval(id);
   }, []);
   return (
-    <text fg={ONBOARD.accent}>
+    <text fg={ONBOARD.accent} marginTop={1}>
       {SPINNER_FRAMES[frame]} Thinking…
     </text>
   );
