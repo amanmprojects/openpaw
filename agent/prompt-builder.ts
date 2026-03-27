@@ -1,5 +1,16 @@
 import { join } from "node:path";
 import type { Personality } from "../config/types";
+import type { OpenPawSurface } from "./types";
+import {
+  getPersonalityProse,
+  MEMORY_GUIDANCE,
+  OPENPAW_IDENTITY,
+  PLATFORM_HINTS,
+  SESSION_NOTE,
+  USER_FACING_VOICE,
+} from "../config/personality-copy";
+import { scanContextContent, truncateContextContent } from "./context-scan";
+import { loadProjectContextFromCwd } from "./prompt-context-files";
 
 async function readUtf8(path: string): Promise<string> {
   try {
@@ -13,30 +24,91 @@ async function readUtf8(path: string): Promise<string> {
   }
 }
 
-const BOOTSTRAP = `## Onboarding behavior
+export type BuildSystemPromptOptions = {
+  workspacePath: string;
+  personality: Personality;
+  /** Where the user is chatting from — affects formatting hints. */
+  surface: OpenPawSurface;
+  /** Frozen blocks from MemoryStore (may be null if empty). */
+  memoryUserBlock: string | null;
+  memoryAgentBlock: string | null;
+};
 
-If \`soul.md\` or \`user.md\` are empty or clearly incomplete, ask the user in a friendly way for the missing details (e.g. how they want you to sound, their name, timezone). When they answer, update \`soul.md\` and \`user.md\` using the file editor tool so future sessions remember them.
+const BOOTSTRAP = `## Onboarding and workspace (internal — do not expose filenames to the user)
 
-For file edits: always \`view\` a file before \`str_replace\`; \`old_str\` must match the file exactly once (including whitespace and newlines).`;
+If persona/voice for this install is missing or vague, ask in plain language how they want you to sound; then persist it with the file editor (workspace persona file).
+
+For durable facts and notes, use the \`memory\` tool: new items → \`add\` + \`content\`; corrections → \`replace\` with \`old_text\` + \`content\`. Offer reminders in human terms (\"Want me to remember that?\") — never say you're writing to a specific file.
+
+For file edits: always \`view\` before \`str_replace\`; \`old_str\` must match exactly once (including whitespace).`;
+
+const STATIC_TOOL_RULES = `## Tools overview
+
+- **bash**: shell commands (cwd is the workspace when sandbox is on, or user home when sandbox is off).
+- **file_editor**: view before str_replace; \`old_str\` must match exactly once; create, insert, delete_lines, undo_edit as needed.
+- **list_dir**: list directories under the sandbox.
+- **memory**: persistent facts (\`user\` / \`memory\` targets). \`add\`: \`content\`. \`replace\`: \`old_text\` + \`content\`. \`remove\`: \`old_text\`. (Live state in tool results; frozen snapshot in system prompt.) When discussing with the user, see \"How to talk with the user\" — do not name these mechanisms.`;
 
 /**
- * Builds the system / instruction block from workspace markdown and config.
+ * Assembles the dynamic system prompt: identity, guidance, platform, workspace files, frozen memory, optional project context.
  */
-export async function buildSystemPrompt(
-  workspacePath: string,
-  personality: Personality,
-): Promise<string> {
-  const agents = await readUtf8(join(workspacePath, "agents.md"));
-  const soul = await readUtf8(join(workspacePath, "soul.md"));
-  const user = await readUtf8(join(workspacePath, "user.md"));
+export async function buildSystemPrompt(options: BuildSystemPromptOptions): Promise<string> {
+  const {
+    workspacePath,
+    personality,
+    surface,
+    memoryUserBlock,
+    memoryAgentBlock,
+  } = options;
+
+  const agentsRaw = (await readUtf8(join(workspacePath, "agents.md"))).trim();
+  const soulRaw = (await readUtf8(join(workspacePath, "soul.md"))).trim();
+
+  const agents = truncateContextContent(
+    scanContextContent(agentsRaw || "(empty)", "agents.md"),
+    "agents.md",
+  );
+  const soul = truncateContextContent(
+    scanContextContent(soulRaw || "(empty — consider asking the user)", "soul.md"),
+    "soul.md",
+  );
+
+  const platformBlock = PLATFORM_HINTS[surface];
+
+  let memoryInjection = "";
+  const mb = memoryAgentBlock
+    ? truncateContextContent(scanContextContent(memoryAgentBlock, "MEMORY.md"), "MEMORY.md")
+    : "";
+  const ub = memoryUserBlock
+    ? truncateContextContent(scanContextContent(memoryUserBlock, "USER.md"), "USER.md")
+    : "";
+  if (mb) {
+    memoryInjection += `\n## What you know already — agent notes (internal)\n\nUse naturally in replies; do not quote section titles or imply you \"read a file\".\n\n${mb}\n`;
+  }
+  if (ub) {
+    memoryInjection += `\n## What you know already — about the user (internal)\n\nUse naturally (\"You told me…\", \"You're in…\"); never say you saw this in a profile or markdown file.\n\n${ub}\n`;
+  }
+  if (!mb && !ub) {
+    memoryInjection = `\n## Durable facts\n\nNothing stored yet — use the \`memory\` tool when the user wants something remembered.\n`;
+  }
+
+  const projectContext = loadProjectContextFromCwd(process.cwd());
+  const projectSection = projectContext
+    ? `\n## Additional project context (from current working directory)\n\n${projectContext}\n`
+    : "";
 
   const sections = [
-    `# Personality preset\n${personality}\n`,
-    `# agents.md (workspace)\n${agents.trim() || "(empty)"}\n`,
-    `# soul.md (assistant persona)\n${soul.trim() || "(empty — consider asking the user)"}\n`,
-    `# user.md (user profile)\n${user.trim() || "(empty — consider asking the user)"}\n`,
+    `# Identity\n${OPENPAW_IDENTITY}`,
+    `# Personality\n${getPersonalityProse(personality)}`,
+    `# How to talk with the user\n${USER_FACING_VOICE}`,
+    `# Memory and persistence\n${MEMORY_GUIDANCE}\n\n${SESSION_NOTE}`,
+    `# Your environment\n${platformBlock}`,
+    `# Workspace (OpenPaw home)\n## Workspace rules\n\n${agents}\n\n## Persona / voice (how you should sound)\n\n${soul}\n`,
+    memoryInjection.trimEnd(),
+    projectSection.trimEnd(),
     BOOTSTRAP,
-  ];
+    STATIC_TOOL_RULES,
+  ].filter(Boolean);
 
-  return sections.join("\n");
+  return sections.join("\n\n");
 }

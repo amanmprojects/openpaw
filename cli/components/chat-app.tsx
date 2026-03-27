@@ -569,6 +569,7 @@ export function ChatApp({
         await runtime.runTurn({
           sessionId,
           userText: text,
+          surface: "cli",
           sandboxRestricted,
           onReasoningDelta: (delta) => {
             assistantSegments = appendAssistantSegment(assistantSegments, "reasoning", delta);

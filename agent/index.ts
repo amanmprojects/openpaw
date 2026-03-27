@@ -1,4 +1,6 @@
-export type { SessionId, RunTurnParams } from "./types";
+export type { SessionId, RunTurnParams, OpenPawSurface } from "./types";
+export type { BuildSystemPromptOptions } from "./prompt-builder";
+export { MemoryStore } from "./memory-store";
 export { buildSystemPrompt } from "./prompt-builder";
 export { createLanguageModel } from "./model";
 export {
@@ -11,6 +13,7 @@ export type { SessionFileV1 } from "./session-store";
 export {
   createOpenPawAgent,
   createAgentRuntime,
+  surfaceFromSessionId,
   type OpenPawAgent,
   type AgentRuntime,
   type OpenPawTools,

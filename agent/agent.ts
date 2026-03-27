@@ -6,36 +6,63 @@ import {
 } from "ai";
 import type { OpenPawConfig } from "../config/types";
 import { buildSystemPrompt } from "./prompt-builder";
+import { MemoryStore } from "./memory-store";
 import { createLanguageModel } from "./model";
 import { loadSessionMessages, saveSessionMessages } from "./session-store";
-import type { RunTurnParams } from "./types";
-import { isSandboxRestricted, runWithTurnContext } from "./turn-context";
 import { createBashTool } from "./tools/bash";
 import { createFileEditorTool } from "./tools/file-editor";
 import { createListDirTool } from "./tools/list-dir";
+import { createMemoryTool } from "./tools/memory";
+import type { OpenPawSurface, RunTurnParams } from "./types";
+import { getTurnSurface, isSandboxRestricted, runWithTurnContext } from "./turn-context";
 
-function createTools(workspacePath: string) {
+const STATIC_AGENT_INSTRUCTIONS = [
+  "You are OpenPaw, a capable local assistant.",
+  "Follow the system prompt: identity, voice with the user, workspace content, tools, and channel hints.",
+  "Use tools faithfully: file_editor (view before str_replace; exact single match for old_str), bash, list_dir, memory.",
+  "Memory tool: add uses content only; replace needs old_text + content; remove needs old_text only.",
+  "To the user: sound human; recall context naturally. Do not mention workspace filenames, profile files, or tool names unless they are developers debugging.",
+].join(" ");
+
+function createTools(workspacePath: string, memoryStore: MemoryStore) {
   return {
     bash: createBashTool(workspacePath),
     file_editor: createFileEditorTool(workspacePath),
     list_dir: createListDirTool(workspacePath),
+    memory: createMemoryTool(memoryStore),
   };
 }
 
 export type OpenPawTools = ReturnType<typeof createTools>;
 
 /**
- * Creates a {@link ToolLoopAgent} with workspace-scoped tools and a dynamic system prompt from markdown files.
+ * Derives chat surface from session id when callers do not pass `surface` explicitly.
  */
-export function createOpenPawAgent(config: OpenPawConfig, workspacePath: string) {
-  const tools = createTools(workspacePath);
+export function surfaceFromSessionId(sessionId: string): OpenPawSurface {
+  return sessionId.startsWith("telegram:") ? "telegram" : "cli";
+}
+
+/**
+ * Creates a {@link ToolLoopAgent} with workspace-scoped tools, curated memory, and a dynamic system prompt.
+ */
+export function createOpenPawAgent(
+  config: OpenPawConfig,
+  workspacePath: string,
+  memoryStore: MemoryStore,
+) {
+  const tools = createTools(workspacePath, memoryStore);
   return new ToolLoopAgent({
     model: createLanguageModel(config),
-    instructions:
-      "You are OpenPaw, a capable assistant. Follow workspace instructions in the system prompt. Use the file_editor tool: view before str_replace; str_replace needs an exact single match for old_str; delete/delete_lines/undo_edit are available when needed.",
+    instructions: STATIC_AGENT_INSTRUCTIONS,
     tools,
     prepareCall: async (options) => {
-      let instructions = await buildSystemPrompt(workspacePath, config.personality);
+      let instructions = await buildSystemPrompt({
+        workspacePath,
+        personality: config.personality,
+        surface: getTurnSurface(),
+        memoryUserBlock: memoryStore.formatForSystemPrompt("user"),
+        memoryAgentBlock: memoryStore.formatForSystemPrompt("memory"),
+      });
       if (!isSandboxRestricted()) {
         instructions +=
           "\n\n## Sandbox (this turn)\nFilesystem sandbox is OFF: file_editor and list_dir may use absolute paths or paths anywhere under the filesystem root; bash runs with cwd set to the user home directory, not the workspace root.";
@@ -50,6 +77,8 @@ export type OpenPawAgent = ReturnType<typeof createOpenPawAgent>;
 export type AgentRuntime = {
   config: OpenPawConfig;
   workspacePath: string;
+  /** Curated memory store (frozen snapshot + tool mutations). */
+  memoryStore: MemoryStore;
   agent: OpenPawAgent;
   runTurn: (params: RunTurnParams) => Promise<{ text: string }>;
 };
@@ -58,11 +87,14 @@ export function createAgentRuntime(
   config: OpenPawConfig,
   workspacePath: string,
 ): AgentRuntime {
-  const agent = createOpenPawAgent(config, workspacePath);
+  const memoryStore = new MemoryStore(workspacePath);
+  memoryStore.loadFromDisk();
+  const agent = createOpenPawAgent(config, workspacePath, memoryStore);
 
   return {
     config,
     workspacePath,
+    memoryStore,
     agent,
     runTurn: async (params) => runTurnWithAgent(agent, params),
   };
@@ -76,12 +108,13 @@ async function runTurnWithAgent(
     sessionId,
     userText,
     sandboxRestricted = true,
+    surface = surfaceFromSessionId(sessionId),
     onTextDelta,
     onReasoningDelta,
     onToolStatus,
   } = params;
 
-  return runWithTurnContext({ sandboxRestricted }, async () => {
+  return runWithTurnContext({ sandboxRestricted, surface }, async () => {
     const prior = await loadSessionMessages(sessionId, agent.tools);
     const userMessage = {
       id: generateId(),

@@ -1,4 +1,4 @@
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ensureWorkspaceDirectories,
@@ -10,23 +10,31 @@ export const DEFAULT_AGENTS_MD = `<!-- OpenPaw workspace instructions -->
 
 You are operating in the user's OpenPaw workspace. Follow project conventions and prefer small, focused changes.
 
-## Profile files
+## How you come across
 
-The workspace includes \`soul.md\` (assistant persona) and \`user.md\` (user profile). When these are empty or incomplete, ask the user naturally for the missing details and update the files using the file editor tool.
+When you reply to the user, speak like a normal person who remembers — not like software citing files. Use "you mentioned", "you told me", "sounds like you're in…" and avoid lines like "your profile says" or naming markdown paths.
+
+## Persisting things (for you, not for the user to hear about)
+
+Use the \`memory\` tool for facts worth keeping: \`add\` with \`content\` for new items; \`replace\` needs both \`old_text\` and \`content\`. Use the file editor for longer persona or workspace wording when needed. Entries in memory are separated by §.
 `;
 
 export const DEFAULT_SOUL_MD = `<!-- Assistant persona — fill in with the user's help -->
 `;
 
-export const DEFAULT_USER_MD = `<!-- User profile (name, timezone, preferences) — fill in with the user's help -->
+export const DEFAULT_USER_MD = `<!-- Legacy: prefer the memory tool (target user) for durable profile facts -->
 `;
 
 /**
- * Creates \`~/.openpaw/workspace\`, \`sessions/\`, and default markdown files if absent.
+ * Creates \`~/.openpaw/workspace\`, \`sessions/\`, \`memories/\`, and default markdown files if absent.
  */
 export function ensureWorkspaceLayout(): void {
   ensureWorkspaceDirectories();
   const root = getWorkspaceRoot();
+  const memoriesDir = join(root, "memories");
+  if (!existsSync(memoriesDir)) {
+    mkdirSync(memoriesDir, { recursive: true });
+  }
   const files: { name: string; content: string }[] = [
     { name: "agents.md", content: DEFAULT_AGENTS_MD },
     { name: "soul.md", content: DEFAULT_SOUL_MD },

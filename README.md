@@ -48,7 +48,8 @@ This creates:
 - defaults:
   - `~/.openpaw/workspace/agents.md`
   - `~/.openpaw/workspace/soul.md`
-  - `~/.openpaw/workspace/user.md`
+  - `~/.openpaw/workspace/user.md` (legacy; prefer the `memory` tool for profile facts)
+  - `~/.openpaw/workspace/memories/` (curated `MEMORY.md` / `USER.md` via the `memory` tool)
   - `~/.openpaw/workspace/sessions/*`
 
 ## Configuration
@@ -97,7 +98,7 @@ Telegram bot commands:
 Top-level modules:
 
 - `agent/`  
-  Agent runtime, model wiring (`@ai-sdk/openai-compatible`), prompt building, tools (`bash`, `file_editor` with view / str_replace / create / insert / undo_edit), session persistence
+  Agent runtime, model wiring (`@ai-sdk/openai-compatible`), structured prompt building (identity, channel hints, optional project context from cwd), tools (`bash`, `file_editor`, `list_dir`, `memory`), session persistence
 - `gateway/`  
   Shared runtime bootstrap + channel adapters (Telegram + channel orchestration)
 - `cli/`  

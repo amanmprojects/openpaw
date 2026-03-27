@@ -238,6 +238,7 @@ function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
           await runtime.runTurn({
             sessionId: persistenceId,
             userText: text,
+            surface: "telegram",
             sandboxRestricted: prefs.sandboxRestricted,
             onTextDelta: handlers.onTextDelta,
             onReasoningDelta: handlers.onReasoningDelta,

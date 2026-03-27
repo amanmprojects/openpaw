@@ -3,6 +3,9 @@
  */
 export type SessionId = string;
 
+/** Chat surface — used for platform-specific system prompt hints. */
+export type OpenPawSurface = "cli" | "telegram";
+
 /**
  * High-signal tool lifecycle events from the UI message stream (for channels like Telegram).
  */
@@ -15,6 +18,11 @@ export type ToolStreamEvent =
 export type RunTurnParams = {
   sessionId: SessionId;
   userText: string;
+  /**
+   * Where the user is chatting from — affects formatting hints in the system prompt.
+   * Defaults to `telegram` when `sessionId` starts with `telegram:`, otherwise `cli`.
+   */
+  surface?: OpenPawSurface;
   /**
    * When true (default), file_editor paths and bash cwd are workspace-scoped.
    * When false, file_editor may access the broader filesystem and bash uses $HOME as cwd.
