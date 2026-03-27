@@ -1,12 +1,19 @@
 import type { Bot } from "grammy";
+import { OPENPAW_SLASH_COMMAND_NAMES } from "../slash-command-tokens";
 
-const OPENPAW_COMMANDS = [
-  { command: "new", description: "Start a fresh conversation" },
-  { command: "sessions", description: "List saved sessions for this chat" },
-  { command: "resume", description: "Resume a session by number from /sessions" },
-  { command: "reasoning", description: "show or hide — reasoning bubbles in Telegram" },
-  { command: "tool_calls", description: "show or hide — tool status lines in Telegram" },
-];
+const OPENPAW_COMMAND_DESCRIPTIONS: Record<(typeof OPENPAW_SLASH_COMMAND_NAMES)[number], string> =
+  {
+    new: "Start a fresh conversation",
+    sessions: "List saved sessions for this chat",
+    resume: "Resume a session by number from /sessions",
+    reasoning: "show or hide — reasoning bubbles in Telegram",
+    tool_calls: "show or hide — tool status lines in Telegram",
+  };
+
+const OPENPAW_COMMANDS = OPENPAW_SLASH_COMMAND_NAMES.map((command) => ({
+  command,
+  description: OPENPAW_COMMAND_DESCRIPTIONS[command],
+}));
 
 /**
  * Telegram keeps separate command lists per {@link https://core.telegram.org/bots/api#botcommandscope}.

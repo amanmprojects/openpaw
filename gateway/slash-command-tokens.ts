@@ -2,13 +2,25 @@
  * Shared parsing for OpenPaw slash commands across channels (Telegram, TUI).
  */
 
-export const RESERVED_SLASH_COMMANDS = new Set([
-  "/new",
-  "/sessions",
-  "/resume",
-  "/reasoning",
-  "/tool_calls",
-]);
+/** Registered bot commands and reserved slash tokens, in menu order. */
+export const OPENPAW_SLASH_COMMAND_NAMES = [
+  "new",
+  "sessions",
+  "resume",
+  "reasoning",
+  "tool_calls",
+] as const;
+
+export const RESERVED_SLASH_COMMANDS = new Set(
+  OPENPAW_SLASH_COMMAND_NAMES.map((name) => `/${name}`),
+);
+
+/**
+ * Comma-separated list of supported slash commands for user-facing error text.
+ */
+export function formatAvailableOpenPawSlashCommandsForUser(): string {
+  return OPENPAW_SLASH_COMMAND_NAMES.map((n) => `/${n}`).join(", ");
+}
 
 /**
  * First whitespace-separated token of the message, lowercased; strips optional `@botname` suffix.

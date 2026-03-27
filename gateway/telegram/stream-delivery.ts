@@ -58,6 +58,15 @@ function isTelegramEntityParseError(err: unknown): boolean {
   );
 }
 
+/** Logs when Telegram rejects `parse_mode: MarkdownV2` (entity parse errors). */
+function logMarkdownV2ApiParseFailed(where: string, err: unknown): void {
+  const detail =
+    err instanceof GrammyError && typeof err.description === "string"
+      ? err.description
+      : err;
+  console.warn(`OpenPaw Telegram: MarkdownV2 parse failed (${where}), falling back to plain`, detail);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -122,6 +131,10 @@ async function sendOrEditRobust(
       ) {
         const plain = plainFallbackBody.slice(0, 4096);
         if (plain.length > 0) {
+          logMarkdownV2ApiParseFailed(
+            messageId !== undefined ? "editMessageText" : "reply",
+            e,
+          );
           activeBody = plain;
           activeExtra = {};
           switchedToPlainAfterEntityError = true;
@@ -152,6 +165,7 @@ async function sendOrEditRobust(
             const plain = plainFallbackBody.slice(0, 4096);
             if (plain.length > 0) {
               try {
+                logMarkdownV2ApiParseFailed("fallback reply", fallbackErr);
                 const sent = await ctx.reply(plain, {});
                 onEntityParseUsePlainForRestOfPhase?.();
                 return sent.message_id;
@@ -213,6 +227,7 @@ async function replyRobust(
       ) {
         const plain = plainFallbackBody.slice(0, 4096);
         if (plain.length > 0) {
+          logMarkdownV2ApiParseFailed("replyRobust", e);
           activeBody = plain;
           activeExtra = {};
           switchedToPlainAfterEntityError = true;
@@ -265,7 +280,7 @@ function textPhaseTelegramPayload(
 }
 
 /**
- * Returns message body and optional `MarkdownV2` parse mode for the main assistant bubble.
+ * Message body and optional `MarkdownV2` for assistant text (live streaming edits and finalize).
  * Omits `parse_mode` when the phase is forced plain or the converter fell back to raw text.
  */
 function textPhaseSendArgs(
