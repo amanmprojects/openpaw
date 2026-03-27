@@ -29,7 +29,7 @@ export function createOpenPawAgent(config: OpenPawConfig, workspacePath: string)
   return new ToolLoopAgent({
     model: createLanguageModel(config),
     instructions:
-      "You are OpenPaw, a capable assistant. Follow workspace instructions in the system prompt.",
+      "You are OpenPaw, a capable assistant. Follow workspace instructions in the system prompt. Use the file_editor tool: view before str_replace; str_replace requires an exact single match for old_str.",
     tools,
     prepareCall: async (options) => ({
       ...options,

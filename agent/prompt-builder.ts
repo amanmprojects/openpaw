@@ -15,7 +15,9 @@ async function readUtf8(path: string): Promise<string> {
 
 const BOOTSTRAP = `## Onboarding behavior
 
-If \`soul.md\` or \`user.md\` are empty or clearly incomplete, ask the user in a friendly way for the missing details (e.g. how they want you to sound, their name, timezone). When they answer, update \`soul.md\` and \`user.md\` using the file editor tool so future sessions remember them.`;
+If \`soul.md\` or \`user.md\` are empty or clearly incomplete, ask the user in a friendly way for the missing details (e.g. how they want you to sound, their name, timezone). When they answer, update \`soul.md\` and \`user.md\` using the file editor tool so future sessions remember them.
+
+For file edits: always \`view\` a file before \`str_replace\`; \`old_str\` must match the file exactly once (including whitespace and newlines).`;
 
 /**
  * Builds the system / instruction block from workspace markdown and config.

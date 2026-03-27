@@ -97,7 +97,7 @@ Telegram bot commands:
 Top-level modules:
 
 - `agent/`  
-  Agent runtime, model wiring (`@ai-sdk/openai-compatible`), prompt building, tools (`bash`, `file_editor`), session persistence
+  Agent runtime, model wiring (`@ai-sdk/openai-compatible`), prompt building, tools (`bash`, `file_editor` with view / str_replace / create / insert / undo_edit), session persistence
 - `gateway/`  
   Shared runtime bootstrap + channel adapters (Telegram + channel orchestration)
 - `cli/`  
