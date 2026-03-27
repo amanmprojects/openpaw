@@ -1,25 +1,12 @@
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
-import { dirname, parse, resolve, sep } from "node:path";
+import { dirname } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { popHistory, pushHistory } from "../file-editor-store";
-import { isSandboxRestricted } from "../turn-context";
+import { resolveScopePath } from "../sandbox-paths";
 
 type ToolSuccess = { success: true; output: string };
 type ToolFailure = { success: false; error: string };
-
-/**
- * Resolves {@link userPath} under {@link allowedBase} and rejects path traversal.
- */
-function resolveSafe(allowedBase: string, userPath: string): string {
-  const root = resolve(allowedBase);
-  const full = resolve(root, userPath);
-  const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
-  if (full !== root && !full.startsWith(prefix)) {
-    throw new Error(`Path traversal blocked: "${userPath}"`);
-  }
-  return full;
-}
 
 /**
  * Reads a file and returns numbered lines in Anthropic text-editor style: padded index, ` | `, content.
@@ -112,22 +99,14 @@ const FileEditorInputSchema = z.object({
 type FileEditorInput = z.infer<typeof FileEditorInputSchema>;
 
 /**
- * Resolves the root directory for file_editor paths: workspace (or `FILE_EDITOR_ROOT`) when
- * sandbox is on, or the OS filesystem root when sandbox is off.
- */
-function allowedBaseFor(workspaceRoot: string): string {
-  if (isSandboxRestricted()) {
-    return resolve(process.env.FILE_EDITOR_ROOT ?? workspaceRoot);
-  }
-  return parse(process.cwd()).root;
-}
-
-/**
  * Portable str_replace-style file editor: view, create, delete, str_replace, insert, delete_lines,
- * undo_edit. Paths are confined under the workspace root (or `FILE_EDITOR_ROOT` when set), unless
- * the sandbox is off for this turn.
+ * undo_edit. When the sandbox is on, paths must stay under the workspace (or `FILE_EDITOR_ROOT`)
+ * or under one of the discovered skill directories.
  */
-export function createFileEditorTool(workspaceRoot: string) {
+export function createFileEditorTool(
+  workspaceRoot: string,
+  skillRoots: readonly string[] = [],
+) {
   return tool({
     description: `
 A file editor for viewing and editing files.
@@ -147,7 +126,6 @@ Even a single space difference will cause the edit to fail.
 `.trim(),
     inputSchema: FileEditorInputSchema,
     execute: async (params: FileEditorInput): Promise<ToolSuccess | ToolFailure> => {
-      const allowedBase = allowedBaseFor(workspaceRoot);
       const {
         command,
         path: filePath,
@@ -164,7 +142,7 @@ Even a single space difference will cause the edit to fail.
       try {
         switch (command) {
           case "view": {
-            const abs = resolveSafe(allowedBase, filePath);
+            const abs = resolveScopePath(workspaceRoot, skillRoots, filePath);
             const st = await stat(abs);
             if (st.isDirectory()) {
               const names = await readdir(abs);
@@ -185,7 +163,7 @@ Even a single space difference will cause the edit to fail.
             if (file_text == null) {
               return { success: false, error: "file_text is required for create." };
             }
-            const abs = resolveSafe(allowedBase, filePath);
+            const abs = resolveScopePath(workspaceRoot, skillRoots, filePath);
             await mkdir(dirname(abs), { recursive: true });
             try {
               const existing = await readFile(abs, "utf-8");
@@ -202,7 +180,7 @@ Even a single space difference will cause the edit to fail.
           }
 
           case "delete": {
-            const abs = resolveSafe(allowedBase, filePath);
+            const abs = resolveScopePath(workspaceRoot, skillRoots, filePath);
             const previous = await readFile(abs, "utf-8");
             pushHistory(abs, previous);
             await unlink(abs);
@@ -213,7 +191,7 @@ Even a single space difference will cause the edit to fail.
             if (old_str == null) {
               return { success: false, error: "old_str is required for str_replace." };
             }
-            const abs = resolveSafe(allowedBase, filePath);
+            const abs = resolveScopePath(workspaceRoot, skillRoots, filePath);
             const content = await readFile(abs, "utf-8");
             const occurrences = content.split(old_str).length - 1;
             if (occurrences === 0) {
@@ -247,7 +225,7 @@ Even a single space difference will cause the edit to fail.
             if (insert_text == null || insert_text === "") {
               return { success: false, error: "insert_text is required for insert." };
             }
-            const abs = resolveSafe(allowedBase, filePath);
+            const abs = resolveScopePath(workspaceRoot, skillRoots, filePath);
             const original = await readFile(abs, "utf-8");
             const lines = original.split("\n");
             pushHistory(abs, original);
@@ -266,7 +244,7 @@ Even a single space difference will cause the edit to fail.
             if (end_line == null) {
               return { success: false, error: "end_line is required for delete_lines." };
             }
-            const abs = resolveSafe(allowedBase, filePath);
+            const abs = resolveScopePath(workspaceRoot, skillRoots, filePath);
             const original = await readFile(abs, "utf-8");
             const lines = original.split("\n");
             pushHistory(abs, original);
@@ -279,7 +257,7 @@ Even a single space difference will cause the edit to fail.
           }
 
           case "undo_edit": {
-            const abs = resolveSafe(allowedBase, filePath);
+            const abs = resolveScopePath(workspaceRoot, skillRoots, filePath);
             const previous = popHistory(abs);
             if (previous === null) {
               return {

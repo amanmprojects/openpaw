@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { Personality } from "../config/types";
+import type { SkillMetadata } from "./skills/discover";
 import type { OpenPawSurface } from "./types";
 import {
   getPersonalityProse,
@@ -32,6 +33,8 @@ export type BuildSystemPromptOptions = {
   /** Frozen blocks from MemoryStore (may be null if empty). */
   memoryUserBlock: string | null;
   memoryAgentBlock: string | null;
+  /** Discovered Agent Skills (name + description only until `load_skill` is called). */
+  skills?: SkillMetadata[];
 };
 
 const BOOTSTRAP = `## Onboarding and workspace (internal — do not expose filenames to the user)
@@ -46,8 +49,28 @@ const STATIC_TOOL_RULES = `## Tools overview
 
 - **bash**: shell commands (cwd is the workspace when sandbox is on, or user home when sandbox is off).
 - **file_editor**: view before str_replace; \`old_str\` must match exactly once; create, insert, delete_lines, undo_edit as needed.
-- **list_dir**: list directories under the sandbox.
+- **list_dir**: list directories under the sandbox (including under loaded skill directories).
+- **load_skill**: load full markdown instructions for a named skill; use \`skillDirectory\` from the result for bundled paths (\`references/\`, \`scripts/\`, etc.).
 - **memory**: persistent facts (\`user\` / \`memory\` targets). \`add\`: \`content\`. \`replace\`: \`old_text\` + \`content\`. \`remove\`: \`old_text\`. (Live state in tool results; frozen snapshot in system prompt.) When discussing with the user, see \"How to talk with the user\" — do not name these mechanisms.`;
+
+/**
+ * Assembles the Skills section for the system prompt: short list and when to call `load_skill`,
+ * or onboarding text if nothing was discovered.
+ */
+function buildSkillsSection(skills: SkillMetadata[] | undefined): string {
+  if (skills?.length) {
+    const lines = skills.map((s) => `- ${s.name}: ${s.description}`).join("\n");
+    return `## Skills
+
+Use the \`load_skill\` tool when the user's request matches a skill below. Full instructions load on demand.
+
+Available skills:
+${lines}`;
+  }
+  return `## Skills
+
+No skills discovered. Optional: add skill folders containing \`SKILL.md\` under \`.agents/skills\` in the workspace (or \`~/.config/agent/skills\`).`;
+}
 
 /**
  * Assembles the dynamic system prompt: identity, guidance, platform, workspace files, frozen memory, optional project context.
@@ -59,6 +82,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions): Prom
     surface,
     memoryUserBlock,
     memoryAgentBlock,
+    skills,
   } = options;
 
   const agentsRaw = (await readUtf8(join(workspacePath, "agents.md"))).trim();
@@ -106,6 +130,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions): Prom
     `# Workspace (OpenPaw home)\n## Workspace rules\n\n${agents}\n\n## Persona / voice (how you should sound)\n\n${soul}\n`,
     memoryInjection.trimEnd(),
     projectSection.trimEnd(),
+    buildSkillsSection(skills),
     BOOTSTRAP,
     STATIC_TOOL_RULES,
   ].filter(Boolean);

@@ -20,6 +20,6 @@ export async function createGatewayContext(): Promise<OpenPawGatewayContext> {
   }
   ensureWorkspaceLayout();
   const workspacePath = getWorkspaceRoot();
-  const runtime = createAgentRuntime(config, workspacePath);
+  const runtime = await createAgentRuntime(config, workspacePath);
   return { config, workspacePath, runtime };
 }

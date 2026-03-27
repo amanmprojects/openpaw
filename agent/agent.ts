@@ -4,14 +4,18 @@ import {
   ToolLoopAgent,
   validateUIMessages,
 } from "ai";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { OpenPawConfig } from "../config/types";
 import { buildSystemPrompt } from "./prompt-builder";
 import { MemoryStore } from "./memory-store";
 import { createLanguageModel } from "./model";
+import { discoverSkillDirectories, type SkillMetadata } from "./skills/discover";
 import { loadSessionMessages, saveSessionMessages } from "./session-store";
 import { createBashTool } from "./tools/bash";
 import { createFileEditorTool } from "./tools/file-editor";
 import { createListDirTool } from "./tools/list-dir";
+import { createLoadSkillTool } from "./tools/load-skill";
 import { createMemoryTool } from "./tools/memory";
 import type { OpenPawSurface, RunTurnParams } from "./types";
 import { getTurnSurface, isSandboxRestricted, runWithTurnContext } from "./turn-context";
@@ -19,16 +23,25 @@ import { getTurnSurface, isSandboxRestricted, runWithTurnContext } from "./turn-
 const STATIC_AGENT_INSTRUCTIONS = [
   "You are OpenPaw, a capable local assistant.",
   "Follow the system prompt: identity, voice with the user, workspace content, tools, and channel hints.",
-  "Use tools faithfully: file_editor (view before str_replace; exact single match for old_str), bash, list_dir, memory.",
+  "Use tools faithfully: file_editor (view before str_replace; exact single match for old_str), bash, list_dir, load_skill, memory.",
   "Memory tool: add uses content only; replace needs old_text + content; remove needs old_text only.",
+  "load_skill: use when a listed skill fits the task; follow loaded instructions and use skillDirectory for bundled file paths.",
   "To the user: sound human; recall context naturally. Do not mention workspace filenames, profile files, or tool names unless they are developers debugging.",
 ].join(" ");
 
-function createTools(workspacePath: string, memoryStore: MemoryStore) {
+/** Default directories scanned for Agent Skills-style folders (each subfolder may contain SKILL.md). */
+function defaultSkillScanDirs(workspacePath: string): string[] {
+  return [join(workspacePath, ".agents/skills"), join(homedir(), ".config/agent/skills")];
+}
+
+/** Instantiates all tools, including `load_skill` and path scope for discovered skill directories. */
+function createTools(workspacePath: string, memoryStore: MemoryStore, skills: SkillMetadata[]) {
+  const skillRoots = skills.map((s) => s.path);
   return {
     bash: createBashTool(workspacePath),
-    file_editor: createFileEditorTool(workspacePath),
-    list_dir: createListDirTool(workspacePath),
+    file_editor: createFileEditorTool(workspacePath, skillRoots),
+    list_dir: createListDirTool(workspacePath, skillRoots),
+    load_skill: createLoadSkillTool(skills),
     memory: createMemoryTool(memoryStore),
   };
 }
@@ -44,13 +57,16 @@ export function surfaceFromSessionId(sessionId: string): OpenPawSurface {
 
 /**
  * Creates a {@link ToolLoopAgent} with workspace-scoped tools, curated memory, and a dynamic system prompt.
+ *
+ * @param skills Discovered Agent Skills (metadata); drives `load_skill` and extra sandbox roots for bundled files.
  */
 export function createOpenPawAgent(
   config: OpenPawConfig,
   workspacePath: string,
   memoryStore: MemoryStore,
+  skills: SkillMetadata[] = [],
 ) {
-  const tools = createTools(workspacePath, memoryStore);
+  const tools = createTools(workspacePath, memoryStore, skills);
   return new ToolLoopAgent({
     model: createLanguageModel(config),
     instructions: STATIC_AGENT_INSTRUCTIONS,
@@ -62,6 +78,7 @@ export function createOpenPawAgent(
         surface: getTurnSurface(),
         memoryUserBlock: memoryStore.formatForSystemPrompt("user"),
         memoryAgentBlock: memoryStore.formatForSystemPrompt("memory"),
+        skills,
       });
       if (!isSandboxRestricted()) {
         instructions +=
@@ -83,13 +100,17 @@ export type AgentRuntime = {
   runTurn: (params: RunTurnParams) => Promise<{ text: string }>;
 };
 
-export function createAgentRuntime(
+/**
+ * Loads memory, discovers skills under the workspace and user config dirs, and builds the shared runtime.
+ */
+export async function createAgentRuntime(
   config: OpenPawConfig,
   workspacePath: string,
-): AgentRuntime {
+): Promise<AgentRuntime> {
   const memoryStore = new MemoryStore(workspacePath);
   memoryStore.loadFromDisk();
-  const agent = createOpenPawAgent(config, workspacePath, memoryStore);
+  const skills = await discoverSkillDirectories(defaultSkillScanDirs(workspacePath));
+  const agent = createOpenPawAgent(config, workspacePath, memoryStore, skills);
 
   return {
     config,

@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   ensureWorkspaceDirectories,
   getWorkspaceRoot,
@@ -26,7 +27,35 @@ export const DEFAULT_USER_MD = `<!-- Legacy: prefer the memory tool (target user
 `;
 
 /**
- * Creates \`~/.openpaw/workspace\`, \`sessions/\`, \`memories/\`, and default markdown files if absent.
+ * Directory shipped with OpenPaw containing Agent Skills (\`SKILL.md\` per subfolder), relative to
+ * this module (repository or package root).
+ */
+function bundledAgentSkillsSourceDir(): string | null {
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const candidate = join(moduleDir, "..", ".agents", "skills");
+  return existsSync(candidate) ? candidate : null;
+}
+
+/**
+ * Copies bundled \`.agents/skills\` into the user workspace once (when \`workspace/.agents/skills\`
+ * is missing) so discovery finds them under \`~/.openpaw/workspace\`.
+ */
+function seedBundledAgentSkillsIfAbsent(workspaceRoot: string): void {
+  const src = bundledAgentSkillsSourceDir();
+  if (!src) {
+    return;
+  }
+  const dest = join(workspaceRoot, ".agents", "skills");
+  if (existsSync(dest)) {
+    return;
+  }
+  mkdirSync(join(workspaceRoot, ".agents"), { recursive: true });
+  cpSync(src, dest, { recursive: true });
+}
+
+/**
+ * Creates \`~/.openpaw/workspace\`, \`sessions/\`, \`memories/\`, default markdown files if absent,
+ * and seeds bundled Agent Skills when \`.agents/skills\` does not exist yet.
  */
 export function ensureWorkspaceLayout(): void {
   ensureWorkspaceDirectories();
@@ -35,6 +64,7 @@ export function ensureWorkspaceLayout(): void {
   if (!existsSync(memoriesDir)) {
     mkdirSync(memoriesDir, { recursive: true });
   }
+  seedBundledAgentSkillsIfAbsent(root);
   const files: { name: string; content: string }[] = [
     { name: "agents.md", content: DEFAULT_AGENTS_MD },
     { name: "soul.md", content: DEFAULT_SOUL_MD },
