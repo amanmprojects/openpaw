@@ -21,16 +21,16 @@ bun install
 ## CLI Usage
 
 ```bash
-bun run openpaw --help
+./cli/openpaw.tsx --help
 ```
 
 Main commands:
 
-- `bun run openpaw onboard`  
+- `./cli/openpaw.tsx onboard`  
   Interactive onboarding (provider URL, API key, model, optional Telegram token, personality)
-- `bun run openpaw tui`  
+- `./cli/openpaw.tsx tui`  
   Start local terminal chat UI
-- `bun run openpaw gateway start`  
+- `./cli/openpaw.tsx gateway start`  
   Start all configured messaging adapters (currently Telegram when token is configured)
 
 ## First-Time Setup
@@ -38,7 +38,7 @@ Main commands:
 Run onboarding once:
 
 ```bash
-bun run openpaw onboard
+./cli/openpaw.tsx onboard
 ```
 
 This creates:
@@ -115,4 +115,4 @@ Execution flow:
 
 ## Notes
 
-- `package.json` currently still includes scaffold `dev` script pointing at `src/index.tsx`; use `bun run openpaw ...` commands above for normal operation.
+- Run the CLI directly as `./cli/openpaw.tsx ...` for the most reliable terminal input behavior, especially inside integrated terminals.

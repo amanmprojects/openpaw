@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import { createCliRenderer } from "@opentui/core";
 import { createRoot, useKeyboard, useRenderer } from "@opentui/react";
 import { useCallback, useEffect, useReducer, useState } from "react";
 import {
@@ -12,6 +11,7 @@ import {
   type ProviderConfig,
 } from "../config";
 import { ensureWorkspaceLayout } from "../agent/workspace-bootstrap";
+import { createSafeCliRenderer } from "./lib/create-safe-cli-renderer";
 import {
   WelcomeScreen,
   InputScreen,
@@ -239,8 +239,11 @@ function App() {
   return <OnboardingWizard onComplete={handleOnboardingComplete} />;
 }
 
-export async function handleOnboard(options: {}) {
-  const renderer = await createCliRenderer({
+/**
+ * Starts the interactive first-run onboarding flow.
+ */
+export async function handleOnboard(_options: {}): Promise<void> {
+  const renderer = await createSafeCliRenderer({
     exitOnCtrlC: true,
   });
   const root = createRoot(renderer);

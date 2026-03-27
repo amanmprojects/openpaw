@@ -2,12 +2,12 @@
  * Entry for the `openpaw tui` subcommand: full-screen terminal chat against
  * the local agent runtime (separate from the gateway process).
  */
-import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { loadSessionMessages } from "../agent/session-store";
 import { createGatewayContext } from "../gateway/bootstrap";
 import { getTuiPersistenceSessionId } from "../gateway/tui/tui-active-thread-store";
 import { ChatApp } from "./components/chat-app";
+import { createSafeCliRenderer } from "./lib/create-safe-cli-renderer";
 import { uiMessagesToChatLines } from "./lib/ui-messages-to-chat-transcript";
 
 /**
@@ -18,7 +18,7 @@ export async function runOpenPawTui(): Promise<void> {
   const sessionId = await getTuiPersistenceSessionId();
   const stored = await loadSessionMessages(sessionId, ctx.runtime.agent.tools);
   const initialLines = uiMessagesToChatLines(stored);
-  const renderer = await createCliRenderer({
+  const renderer = await createSafeCliRenderer({
     exitOnCtrlC: true,
   });
   createRoot(renderer).render(
