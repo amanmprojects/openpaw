@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { TextAttributes, type SyntaxStyle } from "@opentui/core";
+import { useAutoCopySelection } from "../lib/use-auto-copy-selection";
 import type { AgentRuntime } from "../../agent/agent";
 import { loadSessionMessages } from "../../agent/session-store";
 import { formatToolStreamEvent } from "../../agent/tool-stream-format";
@@ -84,11 +85,13 @@ function ChatMessageBlock({
   if (line.role === "user") {
     return (
       <box flexDirection="column" gap={0} marginBottom={1}>
-        <text fg={ONBOARD.roleLabel} attributes={TextAttributes.BOLD}>
+        <text fg={ONBOARD.roleLabel} attributes={TextAttributes.BOLD} selectable>
           <strong>You</strong>
         </text>
         <box flexDirection="column" paddingTop={1}>
-          <text fg={ONBOARD.text}>{line.text}</text>
+          <text fg={ONBOARD.text} selectable>
+            {line.text}
+          </text>
         </box>
       </box>
     );
@@ -108,21 +111,25 @@ function ChatMessageBlock({
 
     return (
       <box flexDirection="column" gap={0} marginBottom={1}>
-        <text fg={ONBOARD.roleLabel} attributes={TextAttributes.BOLD}>
+        <text fg={ONBOARD.roleLabel} attributes={TextAttributes.BOLD} selectable>
           <strong>Assistant</strong>
         </text>
         {nonEmpty.length === 0 ? (
           isStreamingAssistant ? (
             <BusySpinner />
           ) : (
-            <text fg={ONBOARD.muted}>…</text>
+            <text fg={ONBOARD.muted} selectable>
+              …
+            </text>
           )
         ) : (
           <>
             {nonEmpty.map((s, i) =>
               s.kind === "reasoning" || s.kind === "tool" ? (
                 <box key={i} flexDirection="column" paddingTop={1} paddingBottom={1}>
-                  <text fg={ONBOARD.hint}>{s.text}</text>
+                  <text fg={ONBOARD.hint} selectable>
+                    {s.text}
+                  </text>
                 </box>
               ) : (
                 <markdown
@@ -157,7 +164,9 @@ function ChatMessageBlock({
   const isError = line.text.startsWith("Error:");
   return (
     <box flexDirection="column" gap={0} marginBottom={1}>
-      <text fg={isError ? ONBOARD.error : ONBOARD.hint}>{line.text}</text>
+      <text fg={isError ? ONBOARD.error : ONBOARD.hint} selectable>
+        {line.text}
+      </text>
     </box>
   );
 }
@@ -193,7 +202,7 @@ function BusySpinner() {
     return () => clearInterval(id);
   }, []);
   return (
-    <text fg={ONBOARD.accent} marginTop={1}>
+    <text fg={ONBOARD.accent} marginTop={1} selectable>
       {SPINNER_FRAMES[frame]} Thinking…
     </text>
   );
@@ -277,6 +286,8 @@ export function ChatApp({
     () => createOpenpawMarkdownRenderNode(markdownPalette),
     [markdownPalette],
   );
+
+  useAutoCopySelection();
 
   const suggestions = useMemo(
     () => (!busy ? matchingSlashSuggestions(draft) : []),
@@ -559,9 +570,16 @@ export function ChatApp({
   );
 
   return (
-    <box flexDirection="column" flexGrow={1} padding={1} gap={1}>
-      <box flexDirection="row" alignItems="flex-end" gap={2} flexShrink={0}>
-        <ascii-font font="tiny" text="OpenPaw" color={ONBOARD.accent} />
+    <box
+      flexDirection="column"
+      flexGrow={1}
+      paddingTop={1}
+      paddingX={1}
+      paddingBottom={0}
+      gap={0}
+    >
+      <box flexDirection="row" alignItems="flex-end" gap={2} flexShrink={0} marginBottom={1}>
+        <ascii-font font="tiny" text="OpenPaw" color={ONBOARD.accent} marginLeft={1} />
         <text fg={ONBOARD.muted}>Terminal chat</text>
       </box>
 
@@ -570,7 +588,9 @@ export function ChatApp({
         flexDirection="column"
         borderStyle="single"
         borderColor={ONBOARD.hint}
-        padding={1}
+        paddingX={1}
+        paddingTop={0}
+        paddingBottom={0}
         minHeight={4}
       >
         <scrollbox
@@ -596,58 +616,65 @@ export function ChatApp({
         </scrollbox>
       </box>
 
-      <box flexDirection="column" gap={0} flexShrink={0}>
+      <box
+        flexShrink={0}
+        width="100%"
+        borderStyle="single"
+        borderColor={ONBOARD.hint}
+        paddingX={1}
+        paddingY={0}
+      >
+        <box position="relative" width="100%">
+          {suggestions.length > 0 && (
+            <box
+              position="absolute"
+              left={0}
+              right={0}
+              bottom="100%"
+              marginBottom={0}
+              zIndex={10}
+              flexDirection="column"
+              paddingLeft={1}
+              paddingRight={1}
+              paddingTop={1}
+              paddingBottom={1}
+              gap={0}
+              backgroundColor="#1e2030"
+            >
+              {suggestions.map((s, i) => {
+                const active = i === safeSuggestionIndex;
+                return (
+                  <box key={s.command} flexDirection="row" gap={0}>
+                    <text fg={active ? ONBOARD.accent : ONBOARD.muted} selectable>
+                      <strong>{active ? "› " : "  "}</strong>
+                      <strong>{s.command}</strong>
+                    </text>
+                    <text fg={ONBOARD.muted} selectable>{` — ${s.description}`}</text>
+                  </box>
+                );
+              })}
+            </box>
+          )}
+          <input
+            focused
+            value={draft}
+            onInput={setDraft}
+            onChange={setDraft}
+            onSubmit={(payload) => {
+              const raw = typeof payload === "string" ? payload : draft;
+              void sendMessage(raw);
+            }}
+            placeholder={busy ? "Waiting for assistant…" : "Message"}
+            textColor={ONBOARD.text}
+            cursorColor={ONBOARD.accent}
+          />
+        </box>
+      </box>
+
+      <box flexDirection="column" gap={0} flexShrink={0} marginLeft={1}>
         <text fg={ONBOARD.hint}>
           Enter send · Tab complete · ↑/↓ highlight · Ctrl+C quit
         </text>
-      </box>
-
-      <box position="relative" flexShrink={0} width="100%">
-        {suggestions.length > 0 && (
-          <box
-            position="absolute"
-            left={0}
-            right={0}
-            bottom="100%"
-            marginBottom={0}
-            zIndex={10}
-            flexDirection="column"
-            // borderStyle="rounded"
-            // borderColor={ONBOARD.hint}
-            paddingLeft={1}
-            paddingRight={1}
-            paddingTop={1}
-            paddingBottom={1}
-            gap={0}
-            backgroundColor="#1e2030"
-          >
-            {suggestions.map((s, i) => {
-              const active = i === safeSuggestionIndex;
-              return (
-                <box key={s.command} flexDirection="row" gap={0}>
-                  <text fg={active ? ONBOARD.accent : ONBOARD.muted}>
-                    <strong>{active ? "› " : "  "}</strong>
-                    <strong>{s.command}</strong>
-                  </text>
-                  <text fg={ONBOARD.muted}>{` — ${s.description}`}</text>
-                </box>
-              );
-            })}
-          </box>
-        )}
-        <input
-          focused
-          value={draft}
-          onInput={setDraft}
-          onChange={setDraft}
-          onSubmit={(payload) => {
-            const raw = typeof payload === "string" ? payload : draft;
-            void sendMessage(raw);
-          }}
-          placeholder={busy ? "Waiting for assistant…" : "Message"}
-          textColor={ONBOARD.text}
-          cursorColor={ONBOARD.accent}
-        />
       </box>
     </box>
   );
