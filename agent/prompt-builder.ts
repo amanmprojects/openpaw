@@ -15,7 +15,17 @@ async function readUtf8(path: string): Promise<string> {
 
 const BOOTSTRAP = `## Onboarding behavior
 
-If \`soul.md\` or \`user.md\` are empty or clearly incomplete, ask the user in a friendly way for the missing details (e.g. how they want you to sound, their name, timezone). When they answer, update \`soul.md\` and \`user.md\` using the file editor tool so future sessions remember them.`;
+If \`soul.md\` or \`user.md\` are empty or clearly incomplete, ask the user in a friendly way for the missing details (e.g. how they want you to sound, their name, timezone). When they answer, update \`soul.md\` and \`user.md\` using the file editor tool so future sessions remember them.
+
+## Long-term memory
+
+You have access to four memory tools: \`memory_write\`, \`memory_search\`, \`memory_recent\`, and \`memory_prune\`.
+
+- **Before answering questions involving past context**, always call \`memory_search\` first to retrieve relevant memories.
+- **After learning an important fact** (e.g. user preferences, decisions made, key information the user shared), call \`memory_write\` to persist it. Do this proactively without being asked.
+- **For heartbeat/scheduled tasks**, call \`memory_search\` to recall relevant context before running the task.
+- Do NOT save trivial or transient information. Focus on facts, preferences, goals, and key decisions.`;
+
 
 /**
  * Builds the system / instruction block from workspace markdown and config.

@@ -11,11 +11,21 @@ import { loadSessionMessages, saveSessionMessages } from "./session-store";
 import type { RunTurnParams } from "./types";
 import { createBashTool } from "./tools/bash";
 import { createFileEditorTool } from "./tools/file-editor";
+import { createWebSearchTool } from "./tools/web-search";
+import { createPdfReadTool } from "./tools/pdf-read";
+import { createMemoryTools } from "./memory/memory-tools";
+import { openMemoryDb } from "./memory/memory-store";
+import { getMemoryDbPath } from "../config/paths";
 
-function createTools(workspacePath: string) {
+function createTools(workspacePath: string, config: OpenPawConfig) {
+  const db = openMemoryDb(getMemoryDbPath());
+  const memoryTools = createMemoryTools(db, config);
   return {
     bash: createBashTool(workspacePath),
     file_editor: createFileEditorTool(workspacePath),
+    web_search: createWebSearchTool(),
+    pdf_read: createPdfReadTool(workspacePath),
+    ...memoryTools,
   };
 }
 
@@ -25,7 +35,7 @@ export type OpenPawTools = ReturnType<typeof createTools>;
  * Creates a {@link ToolLoopAgent} with workspace-scoped tools and a dynamic system prompt from markdown files.
  */
 export function createOpenPawAgent(config: OpenPawConfig, workspacePath: string) {
-  const tools = createTools(workspacePath);
+  const tools = createTools(workspacePath, config);
   return new ToolLoopAgent({
     model: createLanguageModel(config),
     instructions:

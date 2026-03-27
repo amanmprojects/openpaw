@@ -58,6 +58,13 @@ export function getSessionsDir(): string {
 }
 
 /**
+ * Path for the SQLite long-term memory database, `~/.openpaw/workspace/memory.db`.
+ */
+export function getMemoryDbPath(): string {
+  return join(WORKSPACE_DIR, "memory.db");
+}
+
+/**
  * Ensures workspace and `sessions/` exist on disk (directories only).
  */
 export function ensureWorkspaceDirectories(): void {
