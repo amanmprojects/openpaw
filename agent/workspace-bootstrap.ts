@@ -30,11 +30,16 @@ export const DEFAULT_USER_MD = `<!-- Legacy: prefer the memory tool (target user
 const BUNDLED_FIND_SKILLS_DIR = "find-skills";
 
 /**
- * Path to the shipped \`find-skills\` folder (\`SKILL.md\` + any assets), next to the package root.
+ * Shipped skill trees live under \`bundled-skills/\` at the package root (not under \`.agents/skills\` in the repo).
+ */
+const BUNDLED_SKILLS_ROOT = "bundled-skills";
+
+/**
+ * Path to the shipped \`find-skills\` folder (\`SKILL.md\` + any assets), from \`bundled-skills/find-skills\`.
  */
 function bundledFindSkillsSourceDir(): string | null {
   const moduleDir = dirname(fileURLToPath(import.meta.url));
-  const candidate = join(moduleDir, "..", ".agents", "skills", BUNDLED_FIND_SKILLS_DIR);
+  const candidate = join(moduleDir, "..", BUNDLED_SKILLS_ROOT, BUNDLED_FIND_SKILLS_DIR);
   return existsSync(candidate) ? candidate : null;
 }
 

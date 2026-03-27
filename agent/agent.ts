@@ -4,13 +4,14 @@ import {
   ToolLoopAgent,
   validateUIMessages,
 } from "ai";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { OpenPawConfig } from "../config/types";
 import { buildSystemPrompt } from "./prompt-builder";
 import { MemoryStore } from "./memory-store";
 import { createLanguageModel } from "./model";
-import { discoverSkillDirectories, type SkillMetadata } from "./skills/discover";
+import {
+  refreshSkillCatalog,
+  type OpenPawSkillCatalog,
+} from "./skill-catalog";
 import { loadSessionMessages, saveSessionMessages } from "./session-store";
 import { createBashTool } from "./tools/bash";
 import { createFileEditorTool } from "./tools/file-editor";
@@ -29,19 +30,13 @@ const STATIC_AGENT_INSTRUCTIONS = [
   "To the user: sound human; recall context naturally. Do not mention workspace filenames, profile files, or tool names unless they are developers debugging.",
 ].join(" ");
 
-/** Default directories scanned for Agent Skills-style folders (each subfolder may contain SKILL.md). */
-function defaultSkillScanDirs(workspacePath: string): string[] {
-  return [join(workspacePath, ".agents/skills"), join(homedir(), ".config/agent/skills")];
-}
-
-/** Instantiates all tools, including `load_skill` and path scope for discovered skill directories. */
-function createTools(workspacePath: string, memoryStore: MemoryStore, skills: SkillMetadata[]) {
-  const skillRoots = skills.map((s) => s.path);
+/** Instantiates all tools, including `load_skill` and filesystem tools that rescan {@link OpenPawSkillCatalog}. */
+function createTools(workspacePath: string, memoryStore: MemoryStore, skillCatalog: OpenPawSkillCatalog) {
   return {
     bash: createBashTool(workspacePath),
-    file_editor: createFileEditorTool(workspacePath, skillRoots),
-    list_dir: createListDirTool(workspacePath, skillRoots),
-    load_skill: createLoadSkillTool(skills),
+    file_editor: createFileEditorTool(workspacePath, skillCatalog),
+    list_dir: createListDirTool(workspacePath, skillCatalog),
+    load_skill: createLoadSkillTool(skillCatalog),
     memory: createMemoryTool(memoryStore),
   };
 }
@@ -58,27 +53,28 @@ export function surfaceFromSessionId(sessionId: string): OpenPawSurface {
 /**
  * Creates a {@link ToolLoopAgent} with workspace-scoped tools, curated memory, and a dynamic system prompt.
  *
- * @param skills Discovered Agent Skills (metadata); drives `load_skill` and extra sandbox roots for bundled files.
+ * @param skillCatalog Mutable skill list for this process; rescanned from disk before each model call and in `load_skill`.
  */
 export function createOpenPawAgent(
   config: OpenPawConfig,
   workspacePath: string,
   memoryStore: MemoryStore,
-  skills: SkillMetadata[] = [],
+  skillCatalog: OpenPawSkillCatalog,
 ) {
-  const tools = createTools(workspacePath, memoryStore, skills);
+  const tools = createTools(workspacePath, memoryStore, skillCatalog);
   return new ToolLoopAgent({
     model: createLanguageModel(config),
     instructions: STATIC_AGENT_INSTRUCTIONS,
     tools,
     prepareCall: async (options) => {
+      await refreshSkillCatalog(skillCatalog);
       let instructions = await buildSystemPrompt({
         workspacePath,
         personality: config.personality,
         surface: getTurnSurface(),
         memoryUserBlock: memoryStore.formatForSystemPrompt("user"),
         memoryAgentBlock: memoryStore.formatForSystemPrompt("memory"),
-        skills,
+        skills: skillCatalog.skills,
       });
       if (!isSandboxRestricted()) {
         instructions +=
@@ -109,8 +105,9 @@ export async function createAgentRuntime(
 ): Promise<AgentRuntime> {
   const memoryStore = new MemoryStore(workspacePath);
   memoryStore.loadFromDisk();
-  const skills = await discoverSkillDirectories(defaultSkillScanDirs(workspacePath));
-  const agent = createOpenPawAgent(config, workspacePath, memoryStore, skills);
+  const skillCatalog: OpenPawSkillCatalog = { workspacePath, skills: [] };
+  await refreshSkillCatalog(skillCatalog);
+  const agent = createOpenPawAgent(config, workspacePath, memoryStore, skillCatalog);
 
   return {
     config,

@@ -48,7 +48,7 @@ npx skills find "ascii art"
 npx skills add some-org/some-skills-repo --skill ascii-art -a universal -y
 ```
 
-After installing, OpenPaw discovers new skills under `workspace/.agents/skills/<name>/` on the next process start (or advise restarting if needed).
+After installing, OpenPaw rescans skill directories automatically before each model step and when using `load_skill`, `file_editor`, or `list_dir`—no restart required.
 
 ## How to Help Users Find Skills
 

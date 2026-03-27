@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { tool } from "ai";
 import { z } from "zod";
+import { refreshSkillCatalog, type OpenPawSkillCatalog } from "../skill-catalog";
 import { resolveScopePath, workspaceSandboxBase } from "../sandbox-paths";
 import { isSandboxRestricted } from "../turn-context";
 
@@ -25,10 +26,7 @@ function resolveListDirPath(
  * Lists directory entries as newline-separated names. Paths follow the same sandbox rules as
  * `file_editor` and `bash`.
  */
-export function createListDirTool(
-  workspaceRoot: string,
-  skillRoots: readonly string[] = [],
-) {
+export function createListDirTool(workspaceRoot: string, skillCatalog: OpenPawSkillCatalog) {
   return tool({
     description:
       "List the contents of a directory at the given path. If no path is provided, lists the " +
@@ -43,7 +41,12 @@ export function createListDirTool(
     }),
     execute: async ({ path: pathArg }): Promise<{ contents: string }> => {
       try {
-        const dirPath = resolveListDirPath(workspaceRoot, skillRoots, pathArg);
+        await refreshSkillCatalog(skillCatalog);
+        const dirPath = resolveListDirPath(
+          workspaceRoot,
+          skillCatalog.skills.map((s) => s.path),
+          pathArg,
+        );
         const names = await readdir(dirPath);
         return { contents: names.join("\n") };
       } catch (e) {

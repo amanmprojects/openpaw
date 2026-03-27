@@ -18,6 +18,8 @@ export {
   type AgentRuntime,
   type OpenPawTools,
 } from "./agent";
+export type { OpenPawSkillCatalog } from "./skill-catalog";
+export { refreshSkillCatalog, skillScanDirsForWorkspace } from "./skill-catalog";
 export {
   ensureWorkspaceLayout,
   resetWorkspaceToOnboardingDefaults,

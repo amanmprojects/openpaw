@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { popHistory, pushHistory } from "../file-editor-store";
+import { refreshSkillCatalog, type OpenPawSkillCatalog } from "../skill-catalog";
 import { resolveScopePath } from "../sandbox-paths";
 
 type ToolSuccess = { success: true; output: string };
@@ -101,12 +102,10 @@ type FileEditorInput = z.infer<typeof FileEditorInputSchema>;
 /**
  * Portable str_replace-style file editor: view, create, delete, str_replace, insert, delete_lines,
  * undo_edit. When the sandbox is on, paths must stay under the workspace (or `FILE_EDITOR_ROOT`)
- * or under one of the discovered skill directories.
+ * or under one of the discovered skill directories. Rescans skill metadata at each invocation so
+ * installs in the same turn (e.g. after `bash`) are visible before the next gateway `prepareCall`.
  */
-export function createFileEditorTool(
-  workspaceRoot: string,
-  skillRoots: readonly string[] = [],
-) {
+export function createFileEditorTool(workspaceRoot: string, skillCatalog: OpenPawSkillCatalog) {
   return tool({
     description: `
 A file editor for viewing and editing files.
@@ -126,6 +125,8 @@ Even a single space difference will cause the edit to fail.
 `.trim(),
     inputSchema: FileEditorInputSchema,
     execute: async (params: FileEditorInput): Promise<ToolSuccess | ToolFailure> => {
+      await refreshSkillCatalog(skillCatalog);
+      const skillRoots = skillCatalog.skills.map((s) => s.path);
       const {
         command,
         path: filePath,
