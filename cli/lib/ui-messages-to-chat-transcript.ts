@@ -9,11 +9,17 @@ import {
   isTextUIPart,
   isToolUIPart,
 } from "ai";
-import { truncateJson } from "../../agent/tool-stream-format";
+import {
+  formatTuiToolDeniedMarkdown,
+  formatTuiToolErrorMarkdown,
+  formatTuiToolInputMarkdown,
+  formatTuiToolOutputMarkdown,
+  truncateJson,
+} from "../../agent/tool-stream-format";
 import type { AssistantSegment, ChatLine } from "./chat-transcript-types";
 
 /**
- * Builds a short summary line for a tool invocation part (static or dynamic tool).
+ * Builds a short summary line for a tool part (plain transcript / non-markdown rows).
  */
 function formatToolPartSummary(part: ToolUIPart<UITools> | DynamicToolUIPart): string {
   const name = getToolName(part);
@@ -34,6 +40,31 @@ function formatToolPartSummary(part: ToolUIPart<UITools> | DynamicToolUIPart): s
       return `[Tool ${name}] (approval ${part.approval.approved ? "ok" : "rejected"})`;
     default:
       return `[Tool ${name}]`;
+  }
+}
+
+/**
+ * Same tool display as the live TUI stream: markdown headings + fenced YAML blocks.
+ */
+function formatToolPartForAssistantTui(part: ToolUIPart<UITools> | DynamicToolUIPart): string {
+  const name = getToolName(part);
+  switch (part.state) {
+    case "input-streaming":
+      return `🔧 **Tool · ${name}**\n\n_(input streaming…)_`;
+    case "input-available":
+      return formatTuiToolInputMarkdown(name, part.input);
+    case "output-available":
+      return `${formatTuiToolInputMarkdown(name, part.input)}\n\n${formatTuiToolOutputMarkdown(part.output)}`;
+    case "output-error":
+      return `${formatTuiToolInputMarkdown(name, part.input)}\n\n${formatTuiToolErrorMarkdown(name, part.errorText)}`;
+    case "output-denied":
+      return `${formatTuiToolInputMarkdown(name, part.input)}\n\n${formatTuiToolDeniedMarkdown(name)}`;
+    case "approval-requested":
+      return `🔧 **Tool · ${name}**\n\n_(approval requested)_`;
+    case "approval-responded":
+      return `🔧 **Tool · ${name}**\n\n_(approval ${part.approval.approved ? "granted" : "rejected"})_`;
+    default:
+      return `🔧 **Tool · ${name}**`;
   }
 }
 
@@ -73,7 +104,7 @@ function partsToAssistantSegments(parts: UIMessage["parts"]): AssistantSegment[]
         `[file: ${part.filename ?? part.mediaType}]`,
       );
     } else if (isToolUIPart(part)) {
-      segments = mergeAssistantSegment(segments, "tool", formatToolPartSummary(part));
+      segments = mergeAssistantSegment(segments, "tool", formatToolPartForAssistantTui(part));
     }
   }
   return segments;
