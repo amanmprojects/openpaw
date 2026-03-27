@@ -8,7 +8,7 @@ import { TextAttributes, type SyntaxStyle } from "@opentui/core";
 import { useAutoCopySelection } from "../lib/use-auto-copy-selection";
 import type { AgentRuntime } from "../../agent/agent";
 import { loadSessionMessages } from "../../agent/session-store";
-import { formatToolStreamEvent } from "../../agent/tool-stream-format";
+import { formatToolStreamEventForTui } from "../../agent/tool-stream-format";
 import type { SessionId, ToolStreamEvent } from "../../agent/types";
 import {
   firstCommandToken,
@@ -125,11 +125,29 @@ function ChatMessageBlock({
         ) : (
           <>
             {nonEmpty.map((s, i) =>
-              s.kind === "reasoning" || s.kind === "tool" ? (
-                <box key={i} flexDirection="column" paddingTop={1} paddingBottom={1}>
+              s.kind === "reasoning" ? (
+                <box key={i} flexDirection="column" paddingTop={1} paddingBottom={0}>
                   <text fg={ONBOARD.hint} selectable>
                     {s.text}
                   </text>
+                </box>
+              ) : s.kind === "tool" ? (
+                <box key={i} flexDirection="column" padding={0} marginTop={1} marginX={0} marginBottom={0} gap={0}>
+                  <markdown
+                    content={s.text}
+                    syntaxStyle={syntaxStyle}
+                    width={markdownWidth}
+                    streaming={false}
+                    conceal={false}
+                    renderNode={markdownRenderNode}
+                    tableOptions={{
+                      widthMode: "content",
+                      borderStyle: "single",
+                      borderColor: ONBOARD.hint,
+                      cellPadding: 0,
+                      selectable: true,
+                    }}
+                  />
                 </box>
               ) : (
                 <markdown
@@ -530,7 +548,7 @@ export function ChatApp({
             });
           },
           onToolStatus: (ev: ToolStreamEvent) => {
-            const line = formatToolStreamEvent(ev);
+            const line = formatToolStreamEventForTui(ev);
             if (!line) {
               return;
             }

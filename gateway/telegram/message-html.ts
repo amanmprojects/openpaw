@@ -4,6 +4,7 @@
  */
 
 import { truncateJson } from "../../agent/tool-stream-format";
+import { toolInputToYamlLike, toolOutputToYamlLike } from "../../agent/tool-yaml-like";
 import type { ToolStreamEvent } from "../../agent/types";
 
 const TELEGRAM_MAX = 4096;
@@ -27,49 +28,6 @@ function truncateInner(s: string, reserve: number): string {
     return s;
   }
   return `${s.slice(0, max - 1)}…`;
-}
-
-function formatYamlScalar(v: unknown): string {
-  if (typeof v === "string") {
-    if (/[\n\r:#]/.test(v) || v.length > 160 || v.includes('"')) {
-      return JSON.stringify(v);
-    }
-    return v;
-  }
-  try {
-    return JSON.stringify(v);
-  } catch {
-    return String(v);
-  }
-}
-
-function linesForObject(
-  obj: Record<string, unknown>,
-  indent: number,
-): string[] {
-  const pad = "  ".repeat(indent);
-  const out: string[] = [];
-  for (const [k, v] of Object.entries(obj)) {
-    if (v !== null && typeof v === "object" && !Array.isArray(v)) {
-      out.push(`${pad}${k}:`);
-      out.push(...linesForObject(v as Record<string, unknown>, indent + 1));
-    } else {
-      out.push(`${pad}${k}: ${formatYamlScalar(v)}`);
-    }
-  }
-  return out;
-}
-
-/**
- * Renders tool input as a compact YAML-style string for a pre/code block.
- */
-export function toolInputToYamlLike(toolName: string, input: unknown): string {
-  if (input !== null && typeof input === "object" && !Array.isArray(input)) {
-    const lines = [`${toolName}:`];
-    lines.push(...linesForObject(input as Record<string, unknown>, 1));
-    return lines.join("\n");
-  }
-  return `${toolName}: ${truncateJson(input, 800)}`;
 }
 
 /**
@@ -99,35 +57,6 @@ function formatToolInputBlock(toolName: string, input: unknown): string {
  */
 export function formatToolInputOnlyHtml(toolName: string, input: unknown): string {
   return formatToolInputBlock(toolName, input);
-}
-
-/**
- * YAML-style rendering for tool results (bash exit/stdout/stderr or generic objects).
- */
-export function toolOutputToYamlLike(output: unknown): string {
-  if (output !== null && typeof output === "object" && !Array.isArray(output)) {
-    const o = output as Record<string, unknown>;
-    if ("exitCode" in o && ("stdout" in o || "stderr" in o)) {
-      const lines: string[] = [`exitCode: ${formatYamlScalar(o.exitCode)}`];
-      const stdout = typeof o.stdout === "string" ? o.stdout : String(o.stdout ?? "");
-      const stderr = typeof o.stderr === "string" ? o.stderr : String(o.stderr ?? "");
-      if (stdout.includes("\n")) {
-        lines.push("stdout: |");
-        for (const line of stdout.split("\n")) {
-          lines.push(`  ${line}`);
-        }
-      } else {
-        lines.push(`stdout: ${formatYamlScalar(stdout)}`);
-      }
-      lines.push(`stderr: ${formatYamlScalar(stderr)}`);
-      return lines.join("\n");
-    }
-    return linesForObject(o, 0).join("\n");
-  }
-  if (typeof output === "string") {
-    return output;
-  }
-  return truncateJson(output, 2000);
 }
 
 function formatToolOutputBlock(toolName: string, output: unknown): string {

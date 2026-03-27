@@ -3,6 +3,7 @@
  */
 
 import type { ToolStreamEvent } from "./types";
+import { toolInputToYamlLike, toolOutputToYamlLike } from "./tool-yaml-like";
 
 const DEFAULT_MAX_JSON_LEN = 200;
 
@@ -62,6 +63,40 @@ export function formatToolStreamEvent(ev: ToolStreamEvent): string {
       return formatToolErrorLine(ev.toolName, ev.errorText);
     case "tool_denied":
       return formatToolDeniedLine(ev.toolName);
+    default:
+      return "";
+  }
+}
+
+const TUI_YAML_BLOCK_MAX = 3500;
+
+function truncateTuiYamlBlock(s: string, max: number): string {
+  if (s.length <= max) {
+    return s;
+  }
+  return `${s.slice(0, max - 1)}…`;
+}
+
+/**
+ * Markdown tool status for the terminal chat: headings plus fenced YAML (same shape as Telegram).
+ */
+export function formatToolStreamEventForTui(ev: ToolStreamEvent): string {
+  switch (ev.type) {
+    case "tool_input": {
+      const yaml = truncateTuiYamlBlock(
+        toolInputToYamlLike(ev.toolName, ev.input),
+        TUI_YAML_BLOCK_MAX,
+      );
+      return `🔧 **Tool · ${ev.toolName}**\n\n\`\`\`yaml\n${yaml}\n\`\`\``;
+    }
+    case "tool_output": {
+      const yaml = truncateTuiYamlBlock(toolOutputToYamlLike(ev.output), TUI_YAML_BLOCK_MAX);
+      return `→ **Result**\n\n\`\`\`yaml\n${yaml}\n\`\`\``;
+    }
+    case "tool_error":
+      return `⚠ **${ev.toolName}**\n\n${ev.errorText}`;
+    case "tool_denied":
+      return `⛔ **${ev.toolName}** (denied)`;
     default:
       return "";
   }
