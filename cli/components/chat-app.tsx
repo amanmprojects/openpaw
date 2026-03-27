@@ -637,56 +637,52 @@ export function ChatApp({
       <box
         flexShrink={0}
         width="100%"
+        flexDirection="column"
         borderStyle="single"
         borderColor={ONBOARD.hint}
         paddingX={1}
         paddingY={0}
+        gap={0}
       >
-        <box position="relative" width="100%">
-          {suggestions.length > 0 && (
-            <box
-              position="absolute"
-              left={0}
-              right={0}
-              bottom="100%"
-              marginBottom={0}
-              zIndex={10}
-              flexDirection="column"
-              paddingLeft={1}
-              paddingRight={1}
-              paddingTop={1}
-              paddingBottom={1}
-              gap={0}
-              backgroundColor="#1e2030"
-            >
-              {suggestions.map((s, i) => {
-                const active = i === safeSuggestionIndex;
-                return (
-                  <box key={s.command} flexDirection="row" gap={0}>
-                    <text fg={active ? ONBOARD.accent : ONBOARD.muted} selectable>
-                      <strong>{active ? "› " : "  "}</strong>
-                      <strong>{s.command}</strong>
-                    </text>
-                    <text fg={ONBOARD.muted} selectable>{` — ${s.description}`}</text>
-                  </box>
-                );
-              })}
-            </box>
-          )}
-          <input
-            focused
-            value={draft}
-            onInput={setDraft}
-            onChange={setDraft}
-            onSubmit={(payload) => {
-              const raw = typeof payload === "string" ? payload : draft;
-              void sendMessage(raw);
-            }}
-            placeholder={busy ? "Waiting for assistant…" : "Message"}
-            textColor={ONBOARD.text}
-            cursorColor={ONBOARD.accent}
-          />
-        </box>
+        {suggestions.length > 0 && (
+          <box
+            flexDirection="column"
+            flexShrink={0}
+            marginBottom={1}
+            paddingLeft={1}
+            paddingRight={1}
+            paddingTop={1}
+            paddingBottom={1}
+            gap={0}
+            backgroundColor="#1e2030"
+          >
+            {suggestions.map((s, i) => {
+              const active = i === safeSuggestionIndex;
+              return (
+                <box key={s.command} flexDirection="row" gap={0}>
+                  <text fg={active ? ONBOARD.accent : ONBOARD.muted} selectable>
+                    <strong>{active ? "› " : "  "}</strong>
+                    <strong>{s.command}</strong>
+                  </text>
+                  <text fg={ONBOARD.muted} selectable>{` — ${s.description}`}</text>
+                </box>
+              );
+            })}
+          </box>
+        )}
+        <input
+          focused
+          value={draft}
+          onInput={setDraft}
+          onChange={setDraft}
+          onSubmit={(payload) => {
+            const raw = typeof payload === "string" ? payload : draft;
+            void sendMessage(raw);
+          }}
+          placeholder={busy ? "Waiting for assistant…" : "Message"}
+          textColor={ONBOARD.text}
+          cursorColor={ONBOARD.accent}
+        />
       </box>
 
       <box flexDirection="column" gap={0} flexShrink={0} marginLeft={1}>
