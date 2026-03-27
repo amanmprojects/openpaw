@@ -26,36 +26,38 @@ export const DEFAULT_SOUL_MD = `<!-- Assistant persona — fill in with the user
 export const DEFAULT_USER_MD = `<!-- Legacy: prefer the memory tool (target user) for durable profile facts -->
 `;
 
+/** Only this skill is seeded by default; users add more via \`npx skills\` (see find-skills SKILL). */
+const BUNDLED_FIND_SKILLS_DIR = "find-skills";
+
 /**
- * Directory shipped with OpenPaw containing Agent Skills (\`SKILL.md\` per subfolder), relative to
- * this module (repository or package root).
+ * Path to the shipped \`find-skills\` folder (\`SKILL.md\` + any assets), next to the package root.
  */
-function bundledAgentSkillsSourceDir(): string | null {
+function bundledFindSkillsSourceDir(): string | null {
   const moduleDir = dirname(fileURLToPath(import.meta.url));
-  const candidate = join(moduleDir, "..", ".agents", "skills");
+  const candidate = join(moduleDir, "..", ".agents", "skills", BUNDLED_FIND_SKILLS_DIR);
   return existsSync(candidate) ? candidate : null;
 }
 
 /**
- * Copies bundled \`.agents/skills\` into the user workspace once (when \`workspace/.agents/skills\`
- * is missing) so discovery finds them under \`~/.openpaw/workspace\`.
+ * Seeds \`workspace/.agents/skills/find-skills\` when that folder is missing (onboard / reset).
+ * Other skills are installed later into the same \`skills\` directory by the user or agent.
  */
-function seedBundledAgentSkillsIfAbsent(workspaceRoot: string): void {
-  const src = bundledAgentSkillsSourceDir();
+function seedBundledFindSkillsIfAbsent(workspaceRoot: string): void {
+  const src = bundledFindSkillsSourceDir();
   if (!src) {
     return;
   }
-  const dest = join(workspaceRoot, ".agents", "skills");
+  const dest = join(workspaceRoot, ".agents", "skills", BUNDLED_FIND_SKILLS_DIR);
   if (existsSync(dest)) {
     return;
   }
-  mkdirSync(join(workspaceRoot, ".agents"), { recursive: true });
+  mkdirSync(join(workspaceRoot, ".agents", "skills"), { recursive: true });
   cpSync(src, dest, { recursive: true });
 }
 
 /**
  * Creates \`~/.openpaw/workspace\`, \`sessions/\`, \`memories/\`, default markdown files if absent,
- * and seeds bundled Agent Skills when \`.agents/skills\` does not exist yet.
+ * and seeds the default \`find-skills\` skill under \`.agents/skills/\` when absent.
  */
 export function ensureWorkspaceLayout(): void {
   ensureWorkspaceDirectories();
@@ -64,7 +66,7 @@ export function ensureWorkspaceLayout(): void {
   if (!existsSync(memoriesDir)) {
     mkdirSync(memoriesDir, { recursive: true });
   }
-  seedBundledAgentSkillsIfAbsent(root);
+  seedBundledFindSkillsIfAbsent(root);
   const files: { name: string; content: string }[] = [
     { name: "agents.md", content: DEFAULT_AGENTS_MD },
     { name: "soul.md", content: DEFAULT_SOUL_MD },

@@ -31,11 +31,24 @@ The Skills CLI (`npx skills`) is the package manager for the open agent skills e
 
 **Browse skills at:** [skills.sh](https://skills.sh/)
 
-**Install this skill from upstream (reference):**
+## OpenPaw: workspace, shell, and where skills live
+
+- **Default bundle:** A fresh OpenPaw workspace only includes **find-skills** under `workspace/.agents/skills/find-skills/`. Anything else is installed later.
+- **`bash` tool:** Commands run with **cwd = the OpenPaw workspace root** (e.g. `~/.openpaw/workspace`) when the filesystem sandbox is on — so paths like `.agents/skills` are relative to that directory.
+- **Install new skills into this workspace:** Use **project** scope (do **not** use `-g` / `--global` for OpenPaw’s copy). The Skills CLI maps the **`universal`** agent to project-local **`./.agents/skills/`**. Prefer:
 
 ```bash
-npx skills add https://github.com/vercel-labs/skills --skill find-skills
+npx skills add <owner/repo> --skill <skill-name> -a universal -y
 ```
+
+Examples:
+
+```bash
+npx skills find "ascii art"
+npx skills add some-org/some-skills-repo --skill ascii-art -a universal -y
+```
+
+After installing, OpenPaw discovers new skills under `workspace/.agents/skills/<name>/` on the next process start (or advise restarting if needed).
 
 ## How to Help Users Find Skills
 
@@ -102,15 +115,14 @@ Learn more: https://skills.sh/vercel-labs/agent-skills/react-best-practices
 
 ### Step 6: Offer to Install
 
-If the user wants to proceed, you can install the skill for them:
+If the user wants to proceed, run install from the **workspace root** (OpenPaw `bash` already uses it as cwd). For OpenPaw, use **project** install into `./.agents/skills` via the **`universal`** agent target:
 
 ```bash
-npx skills add <owner/repo@skill> -g -y
+npx skills add <owner/repo> --skill <skill-name> -a universal -y
 ```
 
-The `-g` flag installs globally (user-level) and `-y` skips confirmation prompts.
-
-OpenPaw discovers skills under `~/.openpaw/workspace/.agents/skills` and `~/.config/agent/skills` by default; installing with `-g` typically places skills where `npx skills` expects them for the user's environment—confirm paths if the user hits issues.
+- **Do not** use `-g` for OpenPaw’s workspace skills — that targets the user-level agent dirs instead of this workspace.
+- `-y` skips confirmation when appropriate.
 
 ## Common Skill Categories
 
