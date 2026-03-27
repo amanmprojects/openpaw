@@ -13,6 +13,7 @@ import { createBashTool } from "./tools/bash";
 import { createFileEditorTool } from "./tools/file-editor";
 import { createWebSearchTool } from "./tools/web-search";
 import { createPdfReadTool } from "./tools/pdf-read";
+import { upiParseTool, upiSummaryTool, academicCalendarTool } from "./tools/india-skills";
 import { createMemoryTools } from "./memory/memory-tools";
 import { openMemoryDb } from "./memory/memory-store";
 import { getMemoryDbPath } from "../config/paths";
@@ -25,6 +26,9 @@ function createTools(workspacePath: string, config: OpenPawConfig) {
     file_editor: createFileEditorTool(workspacePath),
     web_search: createWebSearchTool(),
     pdf_read: createPdfReadTool(workspacePath),
+    upi_parse: upiParseTool,
+    upi_summary: upiSummaryTool,
+    academic_calendar: academicCalendarTool,
     ...memoryTools,
   };
 }

@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenPaw Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #181c27;
+      --surface2: #1e2333;
+      --border: #2a3050;
+      --accent: #6c63ff;
+      --accent2: #00d2a0;
+      --text: #e8eaf0;
+      --text2: #8892b0;
+      --danger: #ff5f72;
+      --warning: #ffb547;
+      --success: #3ddc84;
+      --radius: 12px;
+      --font: 'Inter', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+
+    /* ── Layout ─────────────────────────────────────────────── */
+    .layout { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+    aside {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 24px 16px;
+      display: flex; flex-direction: column; gap: 8px;
+      position: sticky; top: 0; height: 100vh; overflow-y: auto;
+    }
+    main { padding: 32px; overflow-y: auto; }
+
+    /* ── Sidebar ─────────────────────────────────────────────── */
+    .logo { display: flex; align-items: center; gap: 10px; padding: 8px; margin-bottom: 16px; }
+    .logo .paw { font-size: 28px; }
+    .logo h1 { font-size: 18px; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .nav-btn {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; border-radius: 8px; border: none;
+      background: transparent; color: var(--text2); cursor: pointer;
+      font-size: 14px; font-family: var(--font); font-weight: 500;
+      transition: all 0.15s; text-align: left;
+    }
+    .nav-btn:hover, .nav-btn.active { background: var(--surface2); color: var(--text); }
+    .nav-btn.active { color: var(--accent); }
+    .nav-sep { height: 1px; background: var(--border); margin: 8px 0; }
+    .nav-label { font-size: 11px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.08em; padding: 4px 14px; }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    .page-header { margin-bottom: 28px; }
+    .page-header h2 { font-size: 24px; font-weight: 700; }
+    .page-header p { color: var(--text2); margin-top: 4px; font-size: 14px; }
+
+    /* ── Cards ──────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px; margin-bottom: 20px;
+    }
+    .card-title { font-size: 13px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 12px; }
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; }
+    .stat { background: var(--surface2); border-radius: 10px; padding: 16px; }
+    .stat .label { font-size: 12px; color: var(--text2); margin-bottom: 6px; }
+    .stat .value { font-size: 28px; font-weight: 700; }
+    .stat .value.accent { color: var(--accent); }
+    .stat .value.success { color: var(--success); }
+    .stat .value.warning { color: var(--warning); }
+
+    /* ── Tools list ─────────────────────────────────────────── */
+    .tools-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tool-chip {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 20px; padding: 4px 12px; font-size: 12px;
+      font-family: var(--mono); color: var(--accent2);
+    }
+
+    /* ── Sessions list ──────────────────────────────────────── */
+    .session-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px; border-radius: 8px; border: 1px solid var(--border);
+      margin-bottom: 8px; background: var(--surface2); cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .session-item:hover { border-color: var(--accent); }
+    .session-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent2); flex-shrink: 0; }
+    .session-name { font-size: 14px; font-weight: 500; }
+    .session-meta { font-size: 12px; color: var(--text2); margin-top: 2px; }
+
+    /* ── Memory list ────────────────────────────────────────── */
+    .memory-item {
+      border-left: 3px solid var(--accent);
+      padding: 10px 16px; margin-bottom: 10px;
+      background: var(--surface2); border-radius: 0 8px 8px 0;
+    }
+    .memory-summary { font-size: 14px; font-weight: 600; }
+    .memory-content { font-size: 13px; color: var(--text2); margin-top: 4px; line-height: 1.5; }
+    .memory-date { font-size: 11px; color: var(--text2); margin-top: 6px; font-family: var(--mono); }
+
+    /* ── Editor ─────────────────────────────────────────────── */
+    .editor-tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+    .tab-btn {
+      padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border);
+      background: transparent; color: var(--text2); cursor: pointer;
+      font-size: 13px; font-family: var(--font); transition: all 0.15s;
+    }
+    .tab-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    textarea {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-family: var(--mono);
+      font-size: 13px; padding: 14px; resize: vertical; min-height: 260px;
+      outline: none; transition: border-color 0.15s;
+    }
+    textarea:focus { border-color: var(--accent); }
+    .btn {
+      padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer;
+      font-size: 14px; font-weight: 600; font-family: var(--font);
+      transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { opacity: 0.85; }
+    .btn-success { background: var(--success); color: #000; }
+    .toast {
+      position: fixed; bottom: 24px; right: 24px; background: var(--success);
+      color: #000; padding: 12px 20px; border-radius: 8px; font-weight: 600;
+      font-size: 14px; transform: translateY(80px); transition: transform 0.3s;
+      z-index: 999;
+    }
+    .toast.show { transform: translateY(0); }
+
+    /* ── Budget bar ─────────────────────────────────────────── */
+    .budget-bar { height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; margin: 8px 0; }
+    .budget-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent2), var(--accent)); transition: width 0.4s; }
+
+    /* ── Page visibility ────────────────────────────────────── */
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── Loading ─────────────────────────────────────────────── */
+    .loading { color: var(--text2); text-align: center; padding: 40px; }
+    .error { color: var(--danger); text-align: center; padding: 20px; }
+    .empty { color: var(--text2); text-align: center; padding: 32px 0; font-size: 14px; }
+
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+  </style>
+</head>
+<body>
+<div class="layout">
+  <aside>
+    <div class="logo"><span class="paw">🐾</span><h1>OpenPaw</h1></div>
+    <span class="nav-label">Navigation</span>
+    <button class="nav-btn active" data-page="overview" onclick="nav('overview', this)">📊 Overview</button>
+    <button class="nav-btn" data-page="sessions" onclick="nav('sessions', this)">💬 Sessions</button>
+    <button class="nav-btn" data-page="memory" onclick="nav('memory', this)">🧠 Memory</button>
+    <div class="nav-sep"></div>
+    <span class="nav-label">Config</span>
+    <button class="nav-btn" data-page="editor" onclick="nav('editor', this)">✏️ Workspace</button>
+    <button class="nav-btn" data-page="heartbeat" onclick="nav('heartbeat', this)">⏰ Heartbeat</button>
+    <button class="nav-btn" data-page="budget" onclick="nav('budget', this)">💰 Budget</button>
+  </aside>
+
+  <main>
+    <!-- Overview -->
+    <div id="page-overview" class="page active">
+      <div class="page-header"><h2>Overview</h2><p>Your OpenPaw assistant at a glance</p></div>
+      <div class="stat-grid" id="stat-grid">
+        <div class="stat"><div class="label">Sessions</div><div class="value accent" id="stat-sessions">—</div></div>
+        <div class="stat"><div class="label">Memories</div><div class="value success" id="stat-memories">—</div></div>
+        <div class="stat"><div class="label">Tokens today</div><div class="value warning" id="stat-tokens">—</div></div>
+        <div class="stat"><div class="label">Tools</div><div class="value accent" id="stat-tools">—</div></div>
+      </div>
+      <div class="card" style="margin-top:20px">
+        <div class="card-title">Available Tools</div>
+        <div class="tools-grid" id="tools-list"><span style="color:var(--text2);font-size:13px">Loading…</span></div>
+      </div>
+    </div>
+
+    <!-- Sessions -->
+    <div id="page-sessions" class="page">
+      <div class="page-header"><h2>Sessions</h2><p>All saved conversation sessions</p></div>
+      <div class="card"><div id="sessions-list"><div class="loading">Loading sessions…</div></div></div>
+    </div>
+
+    <!-- Memory -->
+    <div id="page-memory" class="page">
+      <div class="page-header"><h2>Long-term Memory</h2><p>Facts and preferences the agent has remembered</p></div>
+      <div class="card">
+        <div style="display:flex;gap:8px;margin-bottom:16px">
+          <input id="memory-search-input" type="text" placeholder="Search memories…" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-family:var(--font);font-size:14px;outline:none"
+            oninput="searchMemory(this.value)" />
+        </div>
+        <div id="memory-list"><div class="loading">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- Workspace editor -->
+    <div id="page-editor" class="page">
+      <div class="page-header"><h2>Workspace Editor</h2><p>Edit your workspace markdown files</p></div>
+      <div class="editor-tabs" id="editor-tabs">
+        <button class="tab-btn active" onclick="loadFile('agents.md', this)">agents.md</button>
+        <button class="tab-btn" onclick="loadFile('soul.md', this)">soul.md</button>
+        <button class="tab-btn" onclick="loadFile('user.md', this)">user.md</button>
+      </div>
+      <div class="card">
+        <textarea id="editor-area" placeholder="Loading…"></textarea>
+        <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
+          <button class="btn btn-primary" onclick="saveFile()">💾 Save</button>
+          <span id="editor-status" style="font-size:13px;color:var(--text2)"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Heartbeat editor -->
+    <div id="page-heartbeat" class="page">
+      <div class="page-header"><h2>Heartbeat Tasks</h2><p>Proactive scheduled tasks — the agent will message you automatically</p></div>
+      <div class="card">
+        <div class="card-title">HEARTBEAT.md</div>
+        <textarea id="heartbeat-area" placeholder="Loading…" style="min-height:360px;font-family:var(--mono)"></textarea>
+        <div style="margin-top:12px;display:flex;gap:12px">
+          <button class="btn btn-primary" onclick="saveHeartbeat()">💾 Save</button>
+          <span id="heartbeat-status" style="font-size:13px;color:var(--text2)"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Budget -->
+    <div id="page-budget" class="page">
+      <div class="page-header"><h2>Token Budget</h2><p>Daily API token usage</p></div>
+      <div class="card" id="budget-card"><div class="loading">Loading…</div></div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = "";  // same origin
+let currentFile = "agents.md";
+
+// ── Navigation ───────────────────────────────────────────────────────────────
+function nav(page, btn) {
+  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+  document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+  document.getElementById("page-" + page).classList.add("active");
+  btn.classList.add("active");
+  if (page === "overview") loadOverview();
+  if (page === "sessions") loadSessions();
+  if (page === "memory") loadMemory();
+  if (page === "editor") loadFile("agents.md", document.querySelector("#editor-tabs .tab-btn"));
+  if (page === "heartbeat") loadHeartbeat();
+  if (page === "budget") loadBudget();
+}
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+function toast(msg, isError) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.style.background = isError ? "var(--danger)" : "var(--success)";
+  el.style.color = isError ? "#fff" : "#000";
+  el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 3000);
+}
+
+// ── Overview ─────────────────────────────────────────────────────────────────
+async function loadOverview() {
+  try {
+    const [info, budget] = await Promise.all([
+      fetch("/api/info").then(r => r.json()),
+      fetch("/api/budget").then(r => r.json()),
+    ]);
+    document.getElementById("stat-sessions").textContent = info.sessionCount ?? "—";
+    document.getElementById("stat-memories").textContent = info.memoryCount ?? "—";
+    document.getElementById("stat-tokens").textContent = budget.used?.toLocaleString() ?? "—";
+    document.getElementById("stat-tools").textContent = (info.tools ?? []).length;
+    const tl = document.getElementById("tools-list");
+    tl.innerHTML = (info.tools ?? []).map(t => `<span class="tool-chip">${t}</span>`).join("");
+  } catch(e) {
+    document.getElementById("stat-sessions").textContent = "err";
+  }
+}
+
+// ── Sessions ─────────────────────────────────────────────────────────────────
+async function loadSessions() {
+  const el = document.getElementById("sessions-list");
+  try {
+    const data = await fetch("/api/sessions").then(r => r.json());
+    if (!data.sessions?.length) { el.innerHTML = '<div class="empty">No sessions yet. Start a conversation!</div>'; return; }
+    el.innerHTML = data.sessions.map(s => `
+      <div class="session-item">
+        <div class="session-dot"></div>
+        <div><div class="session-name">${s.id}</div><div class="session-meta">${s.messageCount} messages · ${s.updatedAt ?? ""}</div></div>
+      </div>`).join("");
+  } catch { el.innerHTML = '<div class="error">Failed to load sessions</div>'; }
+}
+
+// ── Memory ───────────────────────────────────────────────────────────────────
+let memoryTimer;
+function searchMemory(q) {
+  clearTimeout(memoryTimer);
+  memoryTimer = setTimeout(() => loadMemory(q), 300);
+}
+
+async function loadMemory(q = "") {
+  const el = document.getElementById("memory-list");
+  try {
+    const url = q ? `/api/memory?q=${encodeURIComponent(q)}` : "/api/memory";
+    const data = await fetch(url).then(r => r.json());
+    if (!data.entries?.length) { el.innerHTML = '<div class="empty">No memories yet. The agent will write memories as you chat.</div>'; return; }
+    el.innerHTML = data.entries.map(m => `
+      <div class="memory-item">
+        <div class="memory-summary">${esc(m.summary)}</div>
+        <div class="memory-content">${esc(m.content)}</div>
+        <div class="memory-date">${m.createdAt}</div>
+      </div>`).join("");
+  } catch { el.innerHTML = '<div class="error">Failed to load memory</div>'; }
+}
+
+// ── File editor ───────────────────────────────────────────────────────────────
+async function loadFile(filename, btn) {
+  currentFile = filename;
+  document.querySelectorAll("#editor-tabs .tab-btn").forEach(b => b.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+  const ta = document.getElementById("editor-area");
+  ta.value = "Loading…";
+  try {
+    const data = await fetch(`/api/file?name=${encodeURIComponent(filename)}`).then(r => r.json());
+    ta.value = data.content ?? "";
+    document.getElementById("editor-status").textContent = "";
+  } catch { ta.value = ""; }
+}
+
+async function saveFile() {
+  const content = document.getElementById("editor-area").value;
+  document.getElementById("editor-status").textContent = "Saving…";
+  try {
+    const r = await fetch("/api/file", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ name: currentFile, content }) });
+    if (r.ok) { toast("Saved!"); document.getElementById("editor-status").textContent = "Saved ✓"; }
+    else { toast("Save failed", true); }
+  } catch { toast("Save failed", true); }
+}
+
+// ── Heartbeat ─────────────────────────────────────────────────────────────────
+async function loadHeartbeat() {
+  try {
+    const data = await fetch("/api/file?name=HEARTBEAT.md").then(r => r.json());
+    document.getElementById("heartbeat-area").value = data.content ?? "";
+  } catch {}
+}
+
+async function saveHeartbeat() {
+  const content = document.getElementById("heartbeat-area").value;
+  document.getElementById("heartbeat-status").textContent = "Saving…";
+  try {
+    const r = await fetch("/api/file", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ name: "HEARTBEAT.md", content }) });
+    if (r.ok) { toast("Heartbeat saved — tasks will reload automatically!"); document.getElementById("heartbeat-status").textContent = "Saved ✓"; }
+    else { toast("Save failed", true); }
+  } catch { toast("Save failed", true); }
+}
+
+// ── Budget ────────────────────────────────────────────────────────────────────
+async function loadBudget() {
+  const card = document.getElementById("budget-card");
+  try {
+    const data = await fetch("/api/budget").then(r => r.json());
+    const pct = data.limit > 0 ? Math.min(100, Math.round(data.used / data.limit * 100)) : 0;
+    const color = pct > 90 ? "var(--danger)" : pct > 70 ? "var(--warning)" : "var(--accent2)";
+    card.innerHTML = `
+      <div class="card-title">Today — ${data.date}</div>
+      <div class="budget-bar"><div class="budget-fill" style="width:${pct}%;background:${color}"></div></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:var(--text2);margin-top:4px">
+        <span>${data.used?.toLocaleString() ?? 0} tokens used</span>
+        <span>${pct}%</span>
+      </div>
+      <div style="margin-top:16px" class="stat-grid">
+        <div class="stat"><div class="label">Used</div><div class="value" style="font-size:20px">${(data.used ?? 0).toLocaleString()}</div></div>
+        <div class="stat"><div class="label">Limit</div><div class="value" style="font-size:20px">${data.limit > 0 ? data.limit.toLocaleString() : "∞"}</div></div>
+        <div class="stat"><div class="label">Remaining</div><div class="value success" style="font-size:20px">${data.limit > 0 ? (data.limit - data.used).toLocaleString() : "∞"}</div></div>
+      </div>
+      ${data.fallbackModel ? `<div style="margin-top:12px;font-size:13px;color:var(--text2)">Fallback: <code style="color:var(--accent2)">${data.fallbackModel}</code>${data.exhausted ? " <span style='color:var(--warning)'>(active)</span>" : ""}</div>` : ""}
+    `;
+  } catch { card.innerHTML = '<div class="error">Could not load budget data</div>'; }
+}
+
+function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+// Boot
+loadOverview();
+</script>
+</body>
+</html>

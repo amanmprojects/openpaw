@@ -52,7 +52,7 @@ function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function loadState(): BudgetState {
+export function loadState(): BudgetState {
   const path = budgetPath();
   if (!existsSync(path)) {
     return { date: todayUtc(), usedPromptTokens: 0, usedCompletionTokens: 0 };

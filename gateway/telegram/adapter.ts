@@ -24,6 +24,7 @@ import {
   type ApprovalRequest,
 } from "../approval-gate";
 import { createTokenBudget, formatBudgetReport } from "../../agent/token-budget";
+import { downloadPhotoAsBase64, transcribeVoiceMessage } from "./media-handler";
 
 /** Callback data prefix for inline approval buttons. */
 const APPROVAL_YES_PREFIX = "approve:yes:";
@@ -271,6 +272,81 @@ function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
         } catch {
           // ignore double failure
         }
+      }
+    });
+  });
+
+  // ── Photo messages ────────────────────────────────────────────────────────
+  bot.on("message:photo", async (grammyCtx) => {
+    const chatId = grammyCtx.chat?.id;
+    if (chatId === undefined) return;
+
+    const photoSizes = grammyCtx.message.photo;
+    const caption = grammyCtx.message.caption ?? "";
+    const queueKey = telegramSessionKey(grammyCtx);
+
+    wireApprovalResponder(bot, chatId);
+    const persistenceId = await getTelegramPersistenceSessionId(chatId);
+    const prefs = await getTelegramChatPreferences(chatId);
+
+    await runNext(queueKey, async () => {
+      try {
+        const photo = await downloadPhotoAsBase64(bot, photoSizes);
+        const userText = photo
+          ? `[photo sent — base64 image attached]${caption ? `\nCaption: ${caption}` : ""}\n\nImage data: ${photo.dataUri.slice(0, 100)}…`
+          : `[photo sent — download failed]${caption ? `\nCaption: ${caption}` : ""}`;;
+
+        // For vision-capable models, include the image as a note in the text.
+        // A full multimodal implementation would pass image parts directly via the AI SDK.
+        const enrichedText = caption
+          ? `User sent a photo with caption: "${caption}". Please describe what you can infer from the context and answer accordingly.`
+          : "User sent a photo. Please acknowledge it and ask what they'd like to do with it.";
+
+        await deliverStreamingReply(grammyCtx, prefs, async (handlers) => {
+          await runtime.runTurn({
+            sessionId: persistenceId,
+            userText: photo ? `[Photo received]${caption ? ` Caption: ${caption}` : ""}` : enrichedText,
+            onTextDelta: handlers.onTextDelta,
+            onReasoningDelta: handlers.onReasoningDelta,
+            onToolStatus: handlers.onToolStatus,
+          });
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        try { await grammyCtx.reply(`OpenPaw error: ${msg}`); } catch {}
+      }
+    });
+  });
+
+  // ── Voice messages ────────────────────────────────────────────────────────
+  bot.on("message:voice", async (grammyCtx) => {
+    const chatId = grammyCtx.chat?.id;
+    if (chatId === undefined) return;
+
+    const voice = grammyCtx.message.voice;
+    const caption = grammyCtx.message.caption;
+    const queueKey = telegramSessionKey(grammyCtx);
+
+    wireApprovalResponder(bot, chatId);
+    const persistenceId = await getTelegramPersistenceSessionId(chatId);
+    const prefs = await getTelegramChatPreferences(chatId);
+
+    await runNext(queueKey, async () => {
+      try {
+        await grammyCtx.reply("🎤 Processing voice message…");
+        const userText = await transcribeVoiceMessage(bot, voice.file_id, caption);
+        await deliverStreamingReply(grammyCtx, prefs, async (handlers) => {
+          await runtime.runTurn({
+            sessionId: persistenceId,
+            userText,
+            onTextDelta: handlers.onTextDelta,
+            onReasoningDelta: handlers.onReasoningDelta,
+            onToolStatus: handlers.onToolStatus,
+          });
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        try { await grammyCtx.reply(`OpenPaw error: ${msg}`); } catch {}
       }
     });
   });

@@ -2,6 +2,7 @@ import { createGatewayContext, type OpenPawGatewayContext } from "./bootstrap";
 import type { ChannelAdapter } from "./channel-adapter";
 import { createTelegramChannelAdapter } from "./telegram/adapter";
 import { createHeartbeatScheduler } from "../scheduler/heartbeat-scheduler";
+import { startDashboardServer } from "../dashboard/server";
 
 /**
  * Build all messaging adapters that are activated by the current config.
@@ -75,5 +76,11 @@ export async function runGatewayMessagingChannels(ctx: OpenPawGatewayContext): P
  */
 export async function startGateway(): Promise<void> {
   const ctx = await createGatewayContext();
+  
+  // Start the web dashboard.
+  const dashboard = startDashboardServer();
+  process.on("SIGINT", () => dashboard.stop());
+  process.on("SIGTERM", () => dashboard.stop());
+
   await runGatewayMessagingChannels(ctx);
 }
