@@ -1,9 +1,34 @@
 import { spawn } from "node:child_process";
 import { tool } from "ai";
 import { z } from "zod";
+import { requestApproval } from "../../gateway/approval-gate";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_OUTPUT_BYTES = 256_000;
+
+/**
+ * Patterns that signal a potentially destructive command requiring approval.
+ * If any pattern matches, the user is asked before execution.
+ */
+const SENSITIVE_PATTERNS = [
+  /\brm\b/,
+  /\bmv\b/,
+  /\bchmod\b/,
+  /\bchown\b/,
+  /\bcurl\b/,
+  /\bwget\b/,
+  /\bnpm\s+(publish|unpublish)\b/,
+  /\bgit\s+(push|reset|clean|rebase)\b/,
+  /\bdd\b/,
+  /\bmkfs\b/,
+  /\bsudo\b/,
+  />/,            // output redirection (writes to files)
+  /\btruncate\b/,
+];
+
+function isSensitiveCommand(command: string): boolean {
+  return SENSITIVE_PATTERNS.some((p) => p.test(command));
+}
 
 function runBunSpawn(
   command: string,
@@ -17,8 +42,6 @@ function runBunSpawn(
       stdio: ["ignore", "pipe", "pipe"],
     });
 
-    let stdout = "";
-    let stderr = "";
     let killed = false;
 
     const timer = setTimeout(() => {
@@ -63,12 +86,14 @@ function runBunSpawn(
 }
 
 /**
- * Runs a shell command with cwd locked to the workspace root. Powerful; workspace-scoped only.
+ * Runs a shell command with cwd locked to the workspace root.
+ * Sensitive commands (rm, curl, git push, redirects, etc.) require explicit
+ * user approval through the registered channel before execution.
  */
 export function createBashTool(workspaceRoot: string) {
   return tool({
     description:
-      "Run a shell command. Current working directory is the OpenPaw workspace root only. Avoid destructive commands unless the user asked.",
+      "Run a shell command. Current working directory is the OpenPaw workspace root only. Destructive commands (rm, curl, git push, etc.) will ask the user for approval before running.",
     inputSchema: z.object({
       command: z.string().describe("Shell command to run (sh -c)"),
       timeoutMs: z
@@ -77,18 +102,25 @@ export function createBashTool(workspaceRoot: string) {
         .describe(`Optional timeout in ms (default ${DEFAULT_TIMEOUT_MS})`),
     }),
     execute: async ({ command, timeoutMs }) => {
+      // Gate: ask for approval if the command looks sensitive.
+      if (isSensitiveCommand(command)) {
+        const approved = await requestApproval(
+          "bash",
+          `Run shell command:\n\`\`\`\n${command}\n\`\`\``,
+        );
+        if (!approved) {
+          return {
+            exitCode: 1,
+            stdout: "",
+            stderr: "[openpaw] Command denied by user (approval timeout or rejection).",
+          };
+        }
+      }
+
       const ms = timeoutMs ?? DEFAULT_TIMEOUT_MS;
       try {
-        const { stdout, stderr, exitCode } = await runBunSpawn(
-          command,
-          workspaceRoot,
-          ms,
-        );
-        return {
-          exitCode,
-          stdout,
-          stderr,
-        };
+        const { stdout, stderr, exitCode } = await runBunSpawn(command, workspaceRoot, ms);
+        return { exitCode, stdout, stderr };
       } catch (e) {
         return {
           exitCode: -1,

@@ -6,6 +6,7 @@ const OPENPAW_COMMANDS = [
   { command: "resume", description: "Resume a session by number from /sessions" },
   { command: "reasoning", description: "show or hide — reasoning bubbles in Telegram" },
   { command: "tool_calls", description: "show or hide — tool status lines in Telegram" },
+  { command: "budget", description: "Show today's token usage and budget status" },
 ];
 
 /**

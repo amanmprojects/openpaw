@@ -1,4 +1,4 @@
-import { Bot } from "grammy";
+import { Bot, InlineKeyboard } from "grammy";
 import { createGatewayContext, type OpenPawGatewayContext } from "../bootstrap";
 import type { ChannelAdapter } from "../channel-adapter";
 import {
@@ -18,10 +18,92 @@ import {
   setTelegramChatPreferences,
 } from "./chat-preferences";
 import { deliverStreamingReply } from "./stream-delivery";
+import {
+  registerApprovalResponder,
+  resolveApproval,
+  type ApprovalRequest,
+} from "../approval-gate";
+import { createTokenBudget, formatBudgetReport } from "../../agent/token-budget";
+
+/** Callback data prefix for inline approval buttons. */
+const APPROVAL_YES_PREFIX = "approve:yes:";
+const APPROVAL_NO_PREFIX = "approve:no:";
+
+/**
+ * Builds an inline keyboard with Approve / Deny buttons for a given approval request.
+ */
+function buildApprovalKeyboard(requestId: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("✅ Approve", `${APPROVAL_YES_PREFIX}${requestId}`)
+    .text("❌ Deny", `${APPROVAL_NO_PREFIX}${requestId}`);
+}
+
+/**
+ * Sends an approval prompt to the Telegram chat identified by chatId and
+ * registers a one-shot callback listener for the Yes/No response.
+ */
+function wireApprovalResponder(bot: Bot, chatId: number): void {
+  registerApprovalResponder(async (req: ApprovalRequest) => {
+    const keyboard = buildApprovalKeyboard(req.id);
+    try {
+      await bot.api.sendMessage(
+        chatId,
+        `⚠️ <b>OpenPaw approval needed</b>\n\n` +
+          `<b>Tool:</b> <code>${req.tool}</code>\n` +
+          `<b>Action:</b>\n${req.description}`,
+        { parse_mode: "HTML", reply_markup: keyboard },
+      );
+    } catch (e) {
+      console.warn("OpenPaw: failed to send approval prompt", e);
+    }
+  });
+}
 
 function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
   const { runtime } = ctx;
   const runNext = createTelegramMessageQueue();
+
+  // Initialise budget reporter (reads from config; 0 = unlimited).
+  const budget = createTokenBudget({
+    dailyLimitTokens: ctx.config.budget?.dailyLimitTokens ?? 0,
+    fallbackModel: ctx.config.budget?.fallbackModel,
+  });
+
+  // Handle inline button callbacks for approval requests.
+  bot.on("callback_query:data", async (grammyCtx) => {
+    const data = grammyCtx.callbackQuery.data;
+    if (data.startsWith(APPROVAL_YES_PREFIX)) {
+      const id = data.slice(APPROVAL_YES_PREFIX.length);
+      const found = resolveApproval(id, true);
+      await grammyCtx.answerCallbackQuery({ text: found ? "✅ Approved" : "Already resolved" });
+      if (found) {
+        await grammyCtx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() });
+      }
+    } else if (data.startsWith(APPROVAL_NO_PREFIX)) {
+      const id = data.slice(APPROVAL_NO_PREFIX.length);
+      const found = resolveApproval(id, false);
+      await grammyCtx.answerCallbackQuery({ text: found ? "❌ Denied" : "Already resolved" });
+      if (found) {
+        await grammyCtx.editMessageReplyMarkup({ reply_markup: new InlineKeyboard() });
+      }
+    }
+  });
+
+  // /budget — show today's token usage
+  bot.command("budget", async (grammyCtx) => {
+    const chatId = grammyCtx.chat?.id;
+    if (chatId === undefined) return;
+    const queueKey = telegramSessionKey(grammyCtx);
+    await runNext(queueKey, async () => {
+      try {
+        const report = budget.report();
+        await grammyCtx.reply(formatBudgetReport(report), { parse_mode: "HTML" });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await grammyCtx.reply(`OpenPaw error: ${msg}`);
+      }
+    });
+  });
 
   bot.command("new", async (grammyCtx) => {
     const chatId = grammyCtx.chat?.id;
@@ -162,6 +244,11 @@ function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
     if (chatId === undefined) {
       return;
     }
+
+    // Wire the approval responder to the current chat so approval prompts go
+    // to the right user.  This is called on every message so group chats work
+    // correctly (last active user's chat receives the prompt).
+    wireApprovalResponder(bot, chatId);
 
     const persistenceId = await getTelegramPersistenceSessionId(chatId);
     const prefs = await getTelegramChatPreferences(chatId);
