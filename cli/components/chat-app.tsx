@@ -123,7 +123,7 @@ function ChatMessageBlock({
             </text>
           )
         ) : (
-          <>
+          <box flexDirection="column" gap={1} width="100%">
             {nonEmpty.map((s, i) =>
               s.kind === "reasoning" ? (
                 <box key={i} flexDirection="column" paddingTop={1} paddingBottom={0}>
@@ -132,7 +132,7 @@ function ChatMessageBlock({
                   </text>
                 </box>
               ) : s.kind === "tool" ? (
-                <box key={i} flexDirection="column" padding={0} marginTop={1} marginX={0} marginBottom={0} gap={0}>
+                <box key={i} flexDirection="column" padding={0} gap={0}>
                   <markdown
                     content={s.text}
                     syntaxStyle={syntaxStyle}
@@ -173,7 +173,7 @@ function ChatMessageBlock({
                 <BusySpinner />
               </box>
             ) : null}
-          </>
+          </box>
         )}
       </box>
     );
