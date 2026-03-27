@@ -9,7 +9,8 @@
     "gateway": "bun run ./cli/openpaw.tsx gateway start",
     "onboard": "bun run ./cli/openpaw.tsx onboard",
     "reset": "bun run ./cli/openpaw.tsx reset",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "bun build --compile --minify --target=bun-linux-x64 ./cli/openpaw.tsx --outfile openpaw"
   },
   "devDependencies": {
     "@types/bun": "latest"

@@ -1,118 +1,102 @@
-# OpenPaw
+# 🐾 OpenPaw
 
-OpenPaw is a Bun + TypeScript local agent runtime with:
+A localized, self-hosted, multimodal AI agent runtime built with **Bun** and the **AI SDK**. OpenPaw provides a personal, persistent, and proactive AI companion that runs via a beautiful Terminal UI (TUI) or headless through Telegram.
 
-- a terminal chat UI (`openpaw tui`) built with OpenTUI
-- a gateway process (`openpaw gateway start`) for messaging channels (Telegram today)
-- persisted sessions and workspace instructions under `~/.openpaw`
+## 🚀 Key Features
 
-## Prerequisites
+*   **Dual Interface:** Run locally via a beautiful React-based TUI (`@opentui`) or headlessly via Telegram long-polling.
+*   **Proactive Heartbeat:** Schedule Cron-based tasks (`HEARTBEAT.md`) where the agent proactively messages you first (e.g. Morning Briefings, Evening Summaries).
+*   **Persistent Memory:** Zero-dependency SQLite Vector DB wrapper for long-term memory. The agent writes to its own diary and automatically retrieves relevant context before answering.
+*   **Multimodal (Telegram):** Send photos for vision context; send voice memos (`.ogg`) and have them automatically transcribed to text via local Whisper CLI.
+*   **Web Dashboard:** Real-time web UI (`localhost:4242`) overlay to view memory, manage sessions, edit workspace files, and monitor token budgets.
+*   **India-First Tools:** Built-in tools to parse UPI/Bank SMS notifications, summarize expenses, and track academic deadlines.
+*   **Local Action Approval:** High-stakes actions (like running bash commands or modifying files) can be approved or denied directly via Telegram inline buttons.
+*   **Agent Tools:** File editing, Bash execution, PDF Reading, Web Searching (DuckDuckGo/Brave).
 
-- Bun `>=1.3` (tested with `1.3.11`)
-- A model provider compatible with OpenAI-style chat APIs
-- Optional: Telegram bot token if you want Telegram channel support
+---
 
-## Install
+## 💻 Commands Summary
 
+From the root repository (`/home/sharvarianand/Documents/openpaw`), here are the main commands to interact with OpenPaw:
+
+### 1. Install Dependencies
 ```bash
 bun install
 ```
 
-## CLI Usage
-
+### 2. First-Time Setup
+Run the guided onboarding wizard to configure your LLM provider and initialize your `~/.openpaw` config directory.
 ```bash
-./cli/openpaw.tsx --help
+bun run onboard
 ```
 
-Main commands:
-
-- `./cli/openpaw.tsx onboard`  
-  Interactive onboarding (provider URL, API key, model, optional Telegram token, personality)
-- `./cli/openpaw.tsx tui`  
-  Start local terminal chat UI
-- `./cli/openpaw.tsx gateway start`  
-  Start all configured messaging adapters (currently Telegram when token is configured)
-
-## First-Time Setup
-
-Run onboarding once:
-
+### 3. Open the Terminal Chat UI
+Launch the interactive TUI for local chatting:
 ```bash
-./cli/openpaw.tsx onboard
+bun run dev
+# (Equivalent direct command: bun run ./cli/openpaw.tsx tui)
 ```
 
-This creates:
+### 4. Start the Messaging Gateway (Telegram & Dashboard)
+Boot the headless Telegram adapter, Heartbeat scheduler, and Web Dashboard.
+```bash
+bun run gateway
+# (Equivalent direct command: bun run ./cli/openpaw.tsx gateway start)
+```
+*Note: The web dashboard starts automatically and runs at `http://localhost:4242`.*
 
-- config file: `~/.openpaw/config.yaml`
-- workspace: `~/.openpaw/workspace`
-- defaults:
-  - `~/.openpaw/workspace/agents.md`
-  - `~/.openpaw/workspace/soul.md`
-  - `~/.openpaw/workspace/user.md`
-  - `~/.openpaw/workspace/sessions/*`
+### 5. Typechecking & Reset
+```bash
+# Verify TypeScript compilation
+bun run typecheck
 
-## Configuration
+# Reset your local workspace (deletes memory, sessions, etc)
+bun run reset
 
-`~/.openpaw/config.yaml` contains:
+# View complete CLI help
+bun run ./cli/openpaw.tsx --help
+```
 
-- `provider.baseUrl`
-- `provider.apiKey`
-- `provider.model`
-- optional `channels.telegram.botToken`
-- `personality` (`Assistant`, `Meowl`, `Coder`)
+---
 
-Example:
+## ⚙️ Configuration & Environment Secrets
 
+The agent's state boundary is entirely contained within `~/.openpaw/` (no database servers needed).
+
+### Required Environment Variables for Proactive Messaging
+If you want the agent to message you proactively based on the `HEARTBEAT.md` schedule, export this before starting the gateway:
+```bash
+export OPENPAW_HEARTBEAT_CHAT_ID=<your_telegram_chat_id>
+bun run gateway
+```
+
+### Telegram Setup
+Ensure your `~/.openpaw/config.yaml` contains your Telegram Bot token:
 ```yaml
-provider:
-  baseUrl: "https://api.openai.com/v1"
-  apiKey: "sk-..."
-  model: "gpt-4o"
 channels:
   telegram:
-    botToken: "123456789:ABC..."
-personality: "Assistant"
+    botToken: "123456789:YOUR_BOT_TOKEN_HERE"
 ```
 
-## Sessions and Commands
+### External Tool Credentials (Optional)
+If you want to use advanced search APIs instead of the free DuckDuckGo fallback, set this in your environment:
+```bash
+export BRAVE_SEARCH_API_KEY=YOUR_KEY  # Powers the web_search tool
+```
 
-Sessions are persisted as JSON files under:
+### Multimodal Extra Setup 🗣️
+- **PDF Read Tool:** Requires `pdftotext` installed on the host OS (`sudo apt install poppler-utils` or `brew install poppler`).
+- **Voice Messages (Telegram):** Requires `whisper` CLI installed on the host OS to transcribe audio (`pip install -U openai-whisper`).
 
-- `~/.openpaw/workspace/sessions`
+---
 
-TUI slash commands:
+## 🏗️ Architecture
 
-- `/new` start a new thread
-- `/sessions` list saved sessions
-- `/resume N` resume by number
+- **`agent/`**: Core runtime (`agent.ts`), persistent memory SQLite (`memory-store.ts`), tokenizer budget, and LLM orchestration via Vercel AI SDK.
+- **`cli/`**: The `commander` CLI wrapper and `@opentui/react` interface.
+- **`gateway/`**: The headless messaging adapters (Telegram long-polling, inline buttons, webhooks).
+- **`dashboard/`**: The web dashboard codebase (`server.ts`, `index.html`) using `Bun.serve`.
+- **`scheduler/`**: The heartbeat CRON engine.
 
-Telegram bot commands:
-
-- `/new`
-- `/sessions`
-- `/resume N`
-
-## Architecture
-
-Top-level modules:
-
-- `agent/`  
-  Agent runtime, model wiring (`@ai-sdk/openai-compatible`), prompt building, tools (`bash`, `file_editor`), session persistence
-- `gateway/`  
-  Shared runtime bootstrap + channel adapters (Telegram + channel orchestration)
-- `cli/`  
-  Commander CLI entrypoint and OpenTUI screens
-- `config/`  
-  Config schema, paths, and disk storage
-
-Execution flow:
-
-1. CLI command starts (`cli/openpaw.tsx`)
-2. Gateway context loads config and ensures workspace layout
-3. Agent runtime is created with tools scoped to workspace root
-4. Channel (TUI or Telegram) forwards user text to `runtime.runTurn(...)`
-5. Assistant output streams back and session history is saved
-
-## Notes
-
-- Run the CLI directly as `./cli/openpaw.tsx ...` for the most reliable terminal input behavior, especially inside integrated terminals.
+## 📦 Building a Binary (Coming Soon)
+A build script utilizing `bun build --compile` is being integrated to distribute OpenPaw as a single standalone executable.
