@@ -9,6 +9,7 @@ import { buildSystemPrompt } from "./prompt-builder";
 import { createLanguageModel } from "./model";
 import { loadSessionMessages, saveSessionMessages } from "./session-store";
 import type { RunTurnParams } from "./types";
+import { isSandboxRestricted, runWithTurnContext } from "./turn-context";
 import { createBashTool } from "./tools/bash";
 import { createFileEditorTool } from "./tools/file-editor";
 
@@ -31,10 +32,14 @@ export function createOpenPawAgent(config: OpenPawConfig, workspacePath: string)
     instructions:
       "You are OpenPaw, a capable assistant. Follow workspace instructions in the system prompt. Use the file_editor tool: view before str_replace; str_replace requires an exact single match for old_str.",
     tools,
-    prepareCall: async (options) => ({
-      ...options,
-      instructions: await buildSystemPrompt(workspacePath, config.personality),
-    }),
+    prepareCall: async (options) => {
+      let instructions = await buildSystemPrompt(workspacePath, config.personality);
+      if (!isSandboxRestricted()) {
+        instructions +=
+          "\n\n## Sandbox (this turn)\nFilesystem sandbox is OFF: file_editor may use absolute paths or paths anywhere under the filesystem root; bash runs with cwd set to the user home directory, not the workspace root.";
+      }
+      return { ...options, instructions };
+    },
   });
 }
 
@@ -63,74 +68,97 @@ export function createAgentRuntime(
 
 async function runTurnWithAgent(
   agent: OpenPawAgent,
-  { sessionId, userText, onTextDelta, onReasoningDelta, onToolStatus }: RunTurnParams,
+  params: RunTurnParams,
 ): Promise<{ text: string }> {
-  const prior = await loadSessionMessages(sessionId, agent.tools);
-  const userMessage = {
-    id: generateId(),
-    role: "user" as const,
-    parts: [{ type: "text" as const, text: userText }],
-  };
-  const draft = [...prior, userMessage];
+  const {
+    sessionId,
+    userText,
+    sandboxRestricted = true,
+    onTextDelta,
+    onReasoningDelta,
+    onToolStatus,
+  } = params;
 
-  const uiMessages = await validateUIMessages({
-    messages: draft,
-    tools: agent.tools as never,
-  });
+  return runWithTurnContext({ sandboxRestricted }, async () => {
+    const prior = await loadSessionMessages(sessionId, agent.tools);
+    const userMessage = {
+      id: generateId(),
+      role: "user" as const,
+      parts: [{ type: "text" as const, text: userText }],
+    };
+    const draft = [...prior, userMessage];
 
-  let accumulated = "";
-  const toolNameByCallId = new Map<string, string>();
+    const uiMessages = await validateUIMessages({
+      messages: draft,
+      tools: agent.tools as never,
+    });
 
-  const stream = await createAgentUIStream({
-    agent,
-    uiMessages,
-    onFinish: async ({ messages }) => {
-      await saveSessionMessages(sessionId, messages);
-    },
-  });
+    let accumulated = "";
+    const toolNameByCallId = new Map<string, string>();
 
-  for await (const chunk of stream) {
-    if (chunk.type === "text-delta" && "delta" in chunk) {
-      const d = chunk.delta;
-      accumulated += d;
-      onTextDelta?.(d);
-    } else if (chunk.type === "reasoning-delta" && "delta" in chunk) {
-      onReasoningDelta?.(chunk.delta);
-    } else if (chunk.type === "tool-input-start") {
-      toolNameByCallId.set(chunk.toolCallId, chunk.toolName);
-    } else if (chunk.type === "tool-input-available") {
-      toolNameByCallId.set(chunk.toolCallId, chunk.toolName);
-      onToolStatus?.({
-        type: "tool_input",
-        toolCallId: chunk.toolCallId,
-        toolName: chunk.toolName,
-        input: chunk.input,
-      });
-    } else if (chunk.type === "tool-output-available") {
-      const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
-      onToolStatus?.({
-        type: "tool_output",
-        toolCallId: chunk.toolCallId,
-        toolName,
-        output: chunk.output,
-      });
-    } else if (chunk.type === "tool-output-error") {
-      const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
-      onToolStatus?.({
-        type: "tool_error",
-        toolCallId: chunk.toolCallId,
-        toolName,
-        errorText: chunk.errorText,
-      });
-    } else if (chunk.type === "tool-output-denied") {
-      const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
-      onToolStatus?.({
-        type: "tool_denied",
-        toolCallId: chunk.toolCallId,
-        toolName,
-      });
+    const stream = await createAgentUIStream({
+      agent,
+      uiMessages,
+      onFinish: async ({ messages }) => {
+        await saveSessionMessages(sessionId, messages);
+      },
+    });
+
+    for await (const chunk of stream) {
+      if (chunk.type === "text-delta" && "delta" in chunk) {
+        const d = chunk.delta;
+        accumulated += d;
+        onTextDelta?.(d);
+      } else if (chunk.type === "error") {
+        const errLine = `Error: ${chunk.errorText}`;
+        accumulated += errLine;
+        onTextDelta?.(errLine);
+      } else if (chunk.type === "reasoning-delta" && "delta" in chunk) {
+        onReasoningDelta?.(chunk.delta);
+      } else if (chunk.type === "tool-input-start") {
+        toolNameByCallId.set(chunk.toolCallId, chunk.toolName);
+      } else if (chunk.type === "tool-input-available") {
+        toolNameByCallId.set(chunk.toolCallId, chunk.toolName);
+        onToolStatus?.({
+          type: "tool_input",
+          toolCallId: chunk.toolCallId,
+          toolName: chunk.toolName,
+          input: chunk.input,
+        });
+      } else if (chunk.type === "tool-input-error") {
+        toolNameByCallId.set(chunk.toolCallId, chunk.toolName);
+        onToolStatus?.({
+          type: "tool_error",
+          toolCallId: chunk.toolCallId,
+          toolName: chunk.toolName,
+          errorText: chunk.errorText,
+        });
+      } else if (chunk.type === "tool-output-available") {
+        const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
+        onToolStatus?.({
+          type: "tool_output",
+          toolCallId: chunk.toolCallId,
+          toolName,
+          output: chunk.output,
+        });
+      } else if (chunk.type === "tool-output-error") {
+        const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
+        onToolStatus?.({
+          type: "tool_error",
+          toolCallId: chunk.toolCallId,
+          toolName,
+          errorText: chunk.errorText,
+        });
+      } else if (chunk.type === "tool-output-denied") {
+        const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
+        onToolStatus?.({
+          type: "tool_denied",
+          toolCallId: chunk.toolCallId,
+          toolName,
+        });
+      }
     }
-  }
 
-  return { text: accumulated };
+    return { text: accumulated };
+  });
 }

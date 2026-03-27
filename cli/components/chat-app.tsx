@@ -56,10 +56,18 @@ const SLASH_SUGGESTIONS: { command: string; description: string }[] = [
   { command: "/new", description: "Start a new conversation thread" },
   { command: "/sessions", description: "List saved sessions" },
   { command: "/resume", description: "Resume session by number (see /sessions)" },
+  { command: "/sandbox", description: "on or off — workspace filesystem & shell scope" },
 ];
 
 function assistantHasVisibleText(line: Extract<ChatLine, { role: "assistant" }>): boolean {
   return line.segments.some((s) => s.kind === "text" && s.text.length > 0);
+}
+
+/**
+ * True when a completed assistant turn has no visible text, reasoning, or tool output.
+ */
+function assistantSegmentsAreBlank(segments: AssistantSegment[]): boolean {
+  return !segments.some((s) => s.text.trim().length > 0);
 }
 
 function ChatMessageBlock({
@@ -119,7 +127,7 @@ function ChatMessageBlock({
             <BusySpinner />
           ) : (
             <text fg={ONBOARD.muted} selectable>
-              …
+              No reply
             </text>
           )
         ) : (
@@ -192,7 +200,8 @@ function ChatMessageBlock({
 const defaultWelcomeLines: ChatLine[] = [
   {
     role: "system",
-    text: "Session ready. Ask anything below. Commands: /new, /sessions, /resume N",
+    text:
+      "Session ready. Ask anything below. Commands: /new, /sessions, /resume N, /sandbox on|off",
   },
 ];
 
@@ -283,6 +292,8 @@ export function ChatApp({
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
+  /** When true, file_editor and bash are workspace-scoped for each agent turn (default). */
+  const [sandboxRestricted, setSandboxRestricted] = useState(true);
 
   const { width: terminalWidth } = useTerminalDimensions();
   const markdownWidth = transcriptMarkdownWidth(terminalWidth);
@@ -376,6 +387,38 @@ export function ChatApp({
         return true;
       }
 
+      if (token === "/sandbox") {
+        const arg = restAfterCommand(text).trim().toLowerCase();
+        if (arg !== "on" && arg !== "off") {
+          setLines((prev) => [
+            ...prev,
+            { role: "system", text: "Usage: /sandbox on — or — /sandbox off" },
+          ]);
+          return true;
+        }
+        const restricted = arg === "on";
+        setSandboxRestricted(restricted);
+        if (restricted) {
+          setLines((prev) => [
+            ...prev,
+            {
+              role: "system",
+              text: "Filesystem sandbox is on: file_editor and bash are limited to the workspace.",
+            },
+          ]);
+        } else {
+          setLines((prev) => [
+            ...prev,
+            {
+              role: "system",
+              text:
+                "Filesystem sandbox is off. The agent can read/write outside the workspace and run shell commands with cwd in your home directory. Use only if you trust this session.",
+            },
+          ]);
+        }
+        return true;
+      }
+
       if (token === "/resume") {
         const arg = restAfterCommand(text);
         if (!/^\d+$/.test(arg)) {
@@ -455,7 +498,10 @@ export function ChatApp({
       suggestions[Math.min(suggestionIndex, suggestions.length - 1)] ??
       suggestions[0]!;
     let next = applyChosenSlashCommand(draft, pick);
-    if (pick.command === "/resume" && !restAfterCommand(next)) {
+    if (
+      (pick.command === "/resume" || pick.command === "/sandbox") &&
+      !restAfterCommand(next)
+    ) {
       next = `${next} `;
     }
     setDraft(next);
@@ -484,7 +530,7 @@ export function ChatApp({
             ...prev,
             {
               role: "system",
-              text: `Unknown command ${firstSeg}. Try /new, /sessions, /resume, /reasoning, or /tool_calls.`,
+              text: `Unknown command ${firstSeg}. Try /new, /sessions, /resume, /sandbox, /reasoning, or /tool_calls.`,
             },
           ]);
           setDraft("");
@@ -523,6 +569,7 @@ export function ChatApp({
         await runtime.runTurn({
           sessionId,
           userText: text,
+          sandboxRestricted,
           onReasoningDelta: (delta) => {
             assistantSegments = appendAssistantSegment(assistantSegments, "reasoning", delta);
             const snapshot = assistantSegments;
@@ -570,6 +617,22 @@ export function ChatApp({
             });
           },
         });
+
+        if (assistantSegmentsAreBlank(assistantSegments)) {
+          setLines((prev) => {
+            const next = [...prev];
+            const last = next[next.length - 1];
+            if (last?.role === "assistant") {
+              next.pop();
+            }
+            next.push({
+              role: "system",
+              text:
+                "Nothing was streamed to the chat this turn. For paths outside the workspace (e.g. Desktop), run `/sandbox off` first.",
+            });
+            return next;
+          });
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         setLines((prev) => {
@@ -584,7 +647,7 @@ export function ChatApp({
         setBusy(false);
       }
     },
-    [busy, handleReservedSlashCommand, runtime, sessionId],
+    [busy, handleReservedSlashCommand, runtime, sandboxRestricted, sessionId],
   );
 
   return (

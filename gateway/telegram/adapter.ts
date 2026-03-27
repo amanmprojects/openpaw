@@ -34,7 +34,8 @@ import { deliverStreamingReply } from "./stream-delivery";
 
 /**
  * Registers Telegram handlers: session management (`/new`, `/sessions`, `/resume`),
- * display prefs (`/reasoning`, `/tool_calls`), unknown OpenPaw slash-command help,
+ * display prefs (`/reasoning`, `/tool_calls`), sandbox (`/sandbox on|off`),
+ * unknown OpenPaw slash-command help,
  * and plain text forwarded to the agent. Work for each chat/topic is serialized
  * through the per-key message queue.
  */
@@ -129,6 +130,37 @@ function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
     });
   });
 
+  bot.command("sandbox", async (grammyCtx) => {
+    const chatId = grammyCtx.chat?.id;
+    if (chatId === undefined) {
+      return;
+    }
+    const queueKey = telegramSessionKey(grammyCtx);
+    await runNext(queueKey, async () => {
+      try {
+        const arg = String(grammyCtx.match ?? "").trim().toLowerCase();
+        if (arg !== "on" && arg !== "off") {
+          await grammyCtx.reply("Usage: /sandbox on — or — /sandbox off");
+          return;
+        }
+        const sandboxRestricted = arg === "on";
+        await setTelegramChatPreferences(chatId, { sandboxRestricted });
+        if (sandboxRestricted) {
+          await grammyCtx.reply(
+            "Filesystem sandbox is on: file_editor and bash are limited to the workspace.",
+          );
+        } else {
+          await grammyCtx.reply(
+            "Filesystem sandbox is off. The agent can read/write outside the workspace and run shell commands with cwd in your home directory. Use only if you trust this chat.",
+          );
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await grammyCtx.reply(`OpenPaw error: ${msg}`);
+      }
+    });
+  });
+
   bot.command("resume", async (grammyCtx) => {
     const chatId = grammyCtx.chat?.id;
     if (chatId === undefined) {
@@ -206,6 +238,7 @@ function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
           await runtime.runTurn({
             sessionId: persistenceId,
             userText: text,
+            sandboxRestricted: prefs.sandboxRestricted,
             onTextDelta: handlers.onTextDelta,
             onReasoningDelta: handlers.onReasoningDelta,
             onToolStatus: handlers.onToolStatus,

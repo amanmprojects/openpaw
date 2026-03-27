@@ -15,6 +15,11 @@ export type ToolStreamEvent =
 export type RunTurnParams = {
   sessionId: SessionId;
   userText: string;
+  /**
+   * When true (default), file_editor paths and bash cwd are workspace-scoped.
+   * When false, file_editor may access the broader filesystem and bash uses $HOME as cwd.
+   */
+  sandboxRestricted?: boolean;
   /** Called for streamed assistant text tokens (optional). */
   onTextDelta?: (delta: string) => void;
   /** Called for streamed model reasoning tokens when the provider exposes them (optional). */

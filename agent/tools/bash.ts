@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
 import { tool } from "ai";
 import { z } from "zod";
+import { isSandboxRestricted } from "../turn-context";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_OUTPUT_BYTES = 256_000;
@@ -63,12 +65,12 @@ function runBunSpawn(
 }
 
 /**
- * Runs a shell command with cwd locked to the workspace root. Powerful; workspace-scoped only.
+ * Runs a shell command; cwd is the workspace when sandbox is on, or the user home when off.
  */
 export function createBashTool(workspaceRoot: string) {
   return tool({
     description:
-      "Run a shell command. Current working directory is the OpenPaw workspace root only. Avoid destructive commands unless the user asked.",
+      "Run a shell command via sh -c. With sandbox on, cwd is the OpenPaw workspace root; with sandbox off, cwd is the user home directory. Avoid destructive commands unless the user asked.",
     inputSchema: z.object({
       command: z.string().describe("Shell command to run (sh -c)"),
       timeoutMs: z
@@ -78,12 +80,9 @@ export function createBashTool(workspaceRoot: string) {
     }),
     execute: async ({ command, timeoutMs }) => {
       const ms = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+      const cwd = isSandboxRestricted() ? workspaceRoot : homedir();
       try {
-        const { stdout, stderr, exitCode } = await runBunSpawn(
-          command,
-          workspaceRoot,
-          ms,
-        );
+        const { stdout, stderr, exitCode } = await runBunSpawn(command, cwd, ms);
         return {
           exitCode,
           stdout,

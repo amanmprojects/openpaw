@@ -1,8 +1,9 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname, resolve, sep } from "node:path";
+import { dirname, parse, resolve, sep } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { popHistory, pushHistory } from "../file-editor-store";
+import { isSandboxRestricted } from "../turn-context";
 
 type ToolSuccess = { success: true; output: string };
 type ToolFailure = { success: false; error: string };
@@ -63,14 +64,22 @@ async function viewDirectory(absPath: string): Promise<string> {
     .join("\n");
 }
 
-const FileEditorParams = z.discriminatedUnion("command", [
+/**
+ * Tool input schema kept simple for strict providers (e.g. Vertex/Gemini): avoid
+ * `z.discriminatedUnion`, tuples, and `z.number().int()` — those can emit JSON Schema
+ * that fails validation (integer min/max or `additionalProperties` placement).
+ */
+const FileEditorParams = z.union([
   z.object({
     command: z.literal("view"),
     path: z.string().describe("File or directory path (relative to workspace root)"),
     view_range: z
-      .tuple([z.number().int(), z.number().int()])
+      .object({
+        start_line: z.number().describe("1-based start line"),
+        end_line: z.number().describe("1-based inclusive end line, or -1 through EOF"),
+      })
       .optional()
-      .describe("Optional [start_line, end_line] (1-based, inclusive). Use -1 for end of file."),
+      .describe("Optional line range; omit to read the whole file."),
   }),
   z.object({
     command: z.literal("str_replace"),
@@ -92,7 +101,6 @@ const FileEditorParams = z.discriminatedUnion("command", [
     path: z.string().describe("File path (relative to workspace root)"),
     insert_line: z
       .number()
-      .int()
       .describe("Line number after which to insert. 0 = beginning of file."),
     insert_text: z.string().describe("Text to insert"),
   }),
@@ -103,12 +111,22 @@ const FileEditorParams = z.discriminatedUnion("command", [
 ]);
 
 /**
+ * Resolves the root directory for file_editor paths: workspace (or `FILE_EDITOR_ROOT`) when
+ * sandbox is on, or the OS filesystem root when sandbox is off.
+ */
+function allowedBaseFor(workspaceRoot: string): string {
+  if (isSandboxRestricted()) {
+    return resolve(process.env.FILE_EDITOR_ROOT ?? workspaceRoot);
+  }
+  return parse(process.cwd()).root;
+}
+
+/**
  * Anthropic-style str_replace-based file editor: view, str_replace, create, insert, undo_edit.
- * Paths are confined under the workspace root (or `FILE_EDITOR_ROOT` when set).
+ * Paths are confined under the workspace root (or `FILE_EDITOR_ROOT` when set), unless the
+ * sandbox is turned off for this turn (then paths may be absolute or under the filesystem root).
  */
 export function createFileEditorTool(workspaceRoot: string) {
-  const allowedBase = resolve(process.env.FILE_EDITOR_ROOT ?? workspaceRoot);
-
   return tool({
     description: `A file editor (str_replace-based). Commands:
 - view: read a file with line numbers, optional line range, or list a directory.
@@ -120,6 +138,7 @@ export function createFileEditorTool(workspaceRoot: string) {
 Always view a file before str_replace. old_str must match exactly once (whitespace, newlines).`,
     inputSchema: FileEditorParams,
     execute: async (params): Promise<ToolSuccess | ToolFailure> => {
+      const allowedBase = allowedBaseFor(workspaceRoot);
       try {
         switch (params.command) {
           case "view": {
@@ -129,7 +148,14 @@ Always view a file before str_replace. old_str must match exactly once (whitespa
               const listing = await viewDirectory(abs);
               return { success: true, output: listing };
             }
-            const content = await readFileWithLines(abs, params.view_range);
+            const rangeTuple =
+              params.view_range !== undefined
+                ? ([params.view_range.start_line, params.view_range.end_line] as [
+                    number,
+                    number,
+                  ])
+                : undefined;
+            const content = await readFileWithLines(abs, rangeTuple);
             return { success: true, output: content };
           }
 

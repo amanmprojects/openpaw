@@ -9,6 +9,7 @@ export const OPENPAW_SLASH_COMMAND_NAMES = [
   "resume",
   "reasoning",
   "tool_calls",
+  "sandbox",
 ] as const;
 
 export const RESERVED_SLASH_COMMANDS = new Set(

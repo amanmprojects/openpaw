@@ -8,6 +8,7 @@ const OPENPAW_COMMAND_DESCRIPTIONS: Record<(typeof OPENPAW_SLASH_COMMAND_NAMES)[
     resume: "Resume a session by number from /sessions",
     reasoning: "show or hide — reasoning bubbles in Telegram",
     tool_calls: "show or hide — tool status lines in Telegram",
+    sandbox: "on or off — restrict file editor and shell to the workspace",
   };
 
 const OPENPAW_COMMANDS = OPENPAW_SLASH_COMMAND_NAMES.map((command) => ({

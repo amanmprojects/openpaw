@@ -4,21 +4,31 @@ import { getSessionsDir } from "../../config/paths";
 import { TELEGRAM_CHAT_PREFERENCES_FILENAME } from "./constants";
 
 /**
- * Per-chat Telegram display flags. Session persistence is unchanged; these only affect live delivery.
+ * Per-chat Telegram display flags and tool sandbox. Session persistence is unchanged;
+ * display flags only affect live delivery; sandbox affects file_editor and bash per turn.
  */
 export type TelegramChatPreferences = {
   /** When false, reasoning phases are not sent as separate Telegram messages. */
   showReasoning: boolean;
   /** When false, tool status lines are not sent as Telegram messages. */
   showToolCalls: boolean;
+  /**
+   * When true (default), file_editor and bash are scoped to the workspace; when false,
+   * file_editor may access the broader filesystem and bash uses $HOME as cwd.
+   */
+  sandboxRestricted: boolean;
 };
 
 const DEFAULT_PREFS: TelegramChatPreferences = {
   showReasoning: true,
   showToolCalls: true,
+  sandboxRestricted: true,
 };
 
-type PrefsFile = Record<string, { showReasoning?: boolean; showToolCalls?: boolean }>;
+type PrefsFile = Record<
+  string,
+  { showReasoning?: boolean; showToolCalls?: boolean; sandboxRestricted?: boolean }
+>;
 
 function prefsPath(): string {
   return join(getSessionsDir(), TELEGRAM_CHAT_PREFERENCES_FILENAME);
@@ -58,6 +68,7 @@ export async function getTelegramChatPreferences(chatId: number): Promise<Telegr
   return {
     showReasoning: row?.showReasoning ?? DEFAULT_PREFS.showReasoning,
     showToolCalls: row?.showToolCalls ?? DEFAULT_PREFS.showToolCalls,
+    sandboxRestricted: row?.sandboxRestricted ?? DEFAULT_PREFS.sandboxRestricted,
   };
 }
 
@@ -66,7 +77,9 @@ export async function getTelegramChatPreferences(chatId: number): Promise<Telegr
  */
 export async function setTelegramChatPreferences(
   chatId: number,
-  patch: Partial<Pick<TelegramChatPreferences, "showReasoning" | "showToolCalls">>,
+  patch: Partial<
+    Pick<TelegramChatPreferences, "showReasoning" | "showToolCalls" | "sandboxRestricted">
+  >,
 ): Promise<TelegramChatPreferences> {
   const all = await readAllPrefs();
   const key = String(chatId);
@@ -74,8 +87,14 @@ export async function setTelegramChatPreferences(
   const next: TelegramChatPreferences = {
     showReasoning: patch.showReasoning ?? prev.showReasoning ?? DEFAULT_PREFS.showReasoning,
     showToolCalls: patch.showToolCalls ?? prev.showToolCalls ?? DEFAULT_PREFS.showToolCalls,
+    sandboxRestricted:
+      patch.sandboxRestricted ?? prev.sandboxRestricted ?? DEFAULT_PREFS.sandboxRestricted,
   };
-  all[key] = { showReasoning: next.showReasoning, showToolCalls: next.showToolCalls };
+  all[key] = {
+    showReasoning: next.showReasoning,
+    showToolCalls: next.showToolCalls,
+    sandboxRestricted: next.sandboxRestricted,
+  };
   await writeAllPrefs(all);
   return next;
 }
