@@ -26,7 +26,7 @@ export function truncateJson(value: unknown, maxLen: number = DEFAULT_MAX_JSON_L
  * One line for tool invocation (Telegram / TUI).
  */
 export function formatToolInputLine(toolName: string, input: unknown): string {
-  return `🔧 ${toolName}: ${truncateJson(input)}`;
+  return `${toolName}: ${truncateJson(input)}`;
 }
 
 /**
@@ -78,25 +78,48 @@ function truncateTuiYamlBlock(s: string, max: number): string {
 }
 
 /**
+ * Markdown block for a tool invocation in the terminal chat (fenced YAML, same as live stream).
+ */
+export function formatTuiToolInputMarkdown(toolName: string, input: unknown): string {
+  const yaml = truncateTuiYamlBlock(toolInputToYamlLike(toolName, input), TUI_YAML_BLOCK_MAX);
+  return `**Tool · ${toolName}**\n\n\`\`\`yaml\n${yaml}\n\`\`\``;
+}
+
+/**
+ * Markdown block for a tool result in the terminal chat.
+ */
+export function formatTuiToolOutputMarkdown(output: unknown): string {
+  const yaml = truncateTuiYamlBlock(toolOutputToYamlLike(output), TUI_YAML_BLOCK_MAX);
+  return `→ **Result**\n\n\`\`\`yaml\n${yaml}\n\`\`\``;
+}
+
+/**
+ * Markdown block for a tool error in the terminal chat.
+ */
+export function formatTuiToolErrorMarkdown(toolName: string, errorText: string): string {
+  return `⚠ **${toolName}**\n\n${errorText}`;
+}
+
+/**
+ * Markdown line for a denied tool in the terminal chat.
+ */
+export function formatTuiToolDeniedMarkdown(toolName: string): string {
+  return `⛔ **${toolName}** (denied)`;
+}
+
+/**
  * Markdown tool status for the terminal chat: headings plus fenced YAML (same shape as Telegram).
  */
 export function formatToolStreamEventForTui(ev: ToolStreamEvent): string {
   switch (ev.type) {
-    case "tool_input": {
-      const yaml = truncateTuiYamlBlock(
-        toolInputToYamlLike(ev.toolName, ev.input),
-        TUI_YAML_BLOCK_MAX,
-      );
-      return `🔧 **Tool · ${ev.toolName}**\n\n\`\`\`yaml\n${yaml}\n\`\`\``;
-    }
-    case "tool_output": {
-      const yaml = truncateTuiYamlBlock(toolOutputToYamlLike(ev.output), TUI_YAML_BLOCK_MAX);
-      return `→ **Result**\n\n\`\`\`yaml\n${yaml}\n\`\`\``;
-    }
+    case "tool_input":
+      return formatTuiToolInputMarkdown(ev.toolName, ev.input);
+    case "tool_output":
+      return formatTuiToolOutputMarkdown(ev.output);
     case "tool_error":
-      return `⚠ **${ev.toolName}**\n\n${ev.errorText}`;
+      return formatTuiToolErrorMarkdown(ev.toolName, ev.errorText);
     case "tool_denied":
-      return `⛔ **${ev.toolName}** (denied)`;
+      return formatTuiToolDeniedMarkdown(ev.toolName);
     default:
       return "";
   }
