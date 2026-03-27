@@ -94,6 +94,42 @@ function formatToolInputBlock(toolName: string, input: unknown): string {
   return `<b>Tool · ${escapeTelegramHtml(toolName)}</b>\n<pre><code class="language-yaml">${body}</code></pre>`;
 }
 
+/**
+ * HTML for the tool-invocation half only (before the result is appended).
+ */
+export function formatToolInputOnlyHtml(toolName: string, input: unknown): string {
+  return formatToolInputBlock(toolName, input);
+}
+
+/**
+ * YAML-style rendering for tool results (bash exit/stdout/stderr or generic objects).
+ */
+export function toolOutputToYamlLike(output: unknown): string {
+  if (output !== null && typeof output === "object" && !Array.isArray(output)) {
+    const o = output as Record<string, unknown>;
+    if ("exitCode" in o && ("stdout" in o || "stderr" in o)) {
+      const lines: string[] = [`exitCode: ${formatYamlScalar(o.exitCode)}`];
+      const stdout = typeof o.stdout === "string" ? o.stdout : String(o.stdout ?? "");
+      const stderr = typeof o.stderr === "string" ? o.stderr : String(o.stderr ?? "");
+      if (stdout.includes("\n")) {
+        lines.push("stdout: |");
+        for (const line of stdout.split("\n")) {
+          lines.push(`  ${line}`);
+        }
+      } else {
+        lines.push(`stdout: ${formatYamlScalar(stdout)}`);
+      }
+      lines.push(`stderr: ${formatYamlScalar(stderr)}`);
+      return lines.join("\n");
+    }
+    return linesForObject(o, 0).join("\n");
+  }
+  if (typeof output === "string") {
+    return output;
+  }
+  return truncateJson(output, 2000);
+}
+
 function formatToolOutputBlock(toolName: string, output: unknown): string {
   const raw =
     typeof output === "string"
@@ -104,7 +140,58 @@ function formatToolOutputBlock(toolName: string, output: unknown): string {
 }
 
 /**
- * Single Telegram HTML message for a streamed tool event.
+ * Full tool bubble: input block plus a Result section (after execution).
+ */
+export function formatToolCallCompleteHtml(
+  toolName: string,
+  input: unknown,
+  result: ToolStreamEvent,
+): string {
+  const head = formatToolInputBlock(toolName, input);
+  let tail = "";
+  switch (result.type) {
+    case "tool_output": {
+      const yaml = truncateInner(toolOutputToYamlLike(result.output), 600);
+      tail = `<b>Result</b>\n<pre><code class="language-yaml">${escapeTelegramHtml(yaml)}</code></pre>`;
+      break;
+    }
+    case "tool_error":
+      tail = `<b>Result</b>\n<blockquote>${escapeTelegramHtml(truncateInner(result.errorText, 400))}</blockquote>`;
+      break;
+    case "tool_denied":
+      tail = "<b>Result</b>\n<i>denied</i>";
+      break;
+    default:
+      return head;
+  }
+  const combined = `${head}\n${tail}`;
+  if (combined.length <= TELEGRAM_MAX) {
+    return combined;
+  }
+  const reserve = tail.length + 80;
+  const shrunkYaml = truncateInner(toolInputToYamlLike(toolName, input), reserve);
+  const shrunkHead = `<b>Tool · ${escapeTelegramHtml(toolName)}</b>\n<pre><code class="language-yaml">${escapeTelegramHtml(shrunkYaml)}</code></pre>`;
+  return `${shrunkHead}\n${tail}`.slice(0, TELEGRAM_MAX);
+}
+
+/**
+ * When no matching tool_input message exists, send the result alone (HTML).
+ */
+export function formatStandaloneToolResultHtml(ev: ToolStreamEvent): string {
+  switch (ev.type) {
+    case "tool_output":
+      return formatToolOutputBlock(ev.toolName, ev.output);
+    case "tool_error":
+      return `<b>⚠ ${escapeTelegramHtml(ev.toolName)}</b>\n<blockquote>${escapeTelegramHtml(truncateInner(ev.errorText, 120))}</blockquote>`;
+    case "tool_denied":
+      return `<b>⛔ ${escapeTelegramHtml(ev.toolName)}</b>\n<i>denied</i>`;
+    default:
+      return "";
+  }
+}
+
+/**
+ * Single Telegram HTML message for a streamed tool event (input-only or legacy standalone).
  */
 export function formatToolStreamEventHtml(ev: ToolStreamEvent): string {
   switch (ev.type) {

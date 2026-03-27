@@ -2,7 +2,13 @@ import type { Context } from "grammy";
 import { GrammyError } from "grammy";
 import type { ToolStreamEvent } from "../../agent/types";
 import type { TelegramChatPreferences } from "./chat-preferences";
-import { formatReasoningPhaseHtml, formatToolStreamEventHtml } from "./message-html";
+import { formatAssistantMarkdownToTelegramV2 } from "./assistant-markdown";
+import {
+  formatReasoningPhaseHtml,
+  formatStandaloneToolResultHtml,
+  formatToolCallCompleteHtml,
+  formatToolInputOnlyHtml,
+} from "./message-html";
 
 const EDIT_INTERVAL_MS = 550;
 const CURSOR = " ▉";
@@ -48,13 +54,13 @@ async function sendOrEditRobust(
   text: string,
   messageId: number | undefined,
   metrics: TelegramDeliveryMetrics,
-  parseMode?: "HTML",
+  parseMode?: "HTML" | "MarkdownV2",
 ): Promise<number | undefined> {
   if (!text) {
     return messageId;
   }
   const body = text.slice(0, 4096);
-  const extra = parseMode ? { parse_mode: parseMode as "HTML" } : {};
+  const extra = parseMode ? { parse_mode: parseMode } : {};
 
   for (let attempt = 0; attempt < MAX_API_ATTEMPTS; attempt++) {
     try {
@@ -107,17 +113,17 @@ async function replyRobust(
   ctx: Context,
   text: string,
   metrics: TelegramDeliveryMetrics,
-  parseMode?: "HTML",
-): Promise<void> {
+  parseMode?: "HTML" | "MarkdownV2",
+): Promise<number | undefined> {
   const body = text.slice(0, 4096);
   if (!body) {
-    return;
+    return undefined;
   }
-  const extra = parseMode ? { parse_mode: parseMode as "HTML" } : {};
+  const extra = parseMode ? { parse_mode: parseMode } : {};
   for (let attempt = 0; attempt < MAX_API_ATTEMPTS; attempt++) {
     try {
-      await ctx.reply(body, extra);
-      return;
+      const sent = await ctx.reply(body, extra);
+      return sent.message_id;
     } catch (e) {
       if (e instanceof GrammyError && e.error_code === 429) {
         metrics.retryAfter429++;
@@ -136,6 +142,7 @@ async function replyRobust(
       await sleep(Math.min(500 * (attempt + 1), 3000));
     }
   }
+  return undefined;
 }
 
 type ActivePhase = {
@@ -209,6 +216,11 @@ export async function deliverStreamingReply(
 
   const active: PhaseRef = { current: null };
   let sentAny = false;
+  /** toolCallId → message to edit when output/error/denied arrives */
+  const pendingToolBubble = new Map<
+    string,
+    { messageId: number; toolName: string; input: unknown }
+  >();
 
   const finalizePhase = async (): Promise<void> => {
     const cur = active.current;
@@ -225,13 +237,22 @@ export async function deliverStreamingReply(
       const plainChunk = acc.slice(0, splitAt);
       const payload = html
         ? formatReasoningPhaseHtml(plainChunk, false)
-        : plainChunk;
-      mid = await sendOrEditRobust(ctx, chatId, payload, mid, metrics, html ? "HTML" : undefined);
+        : formatAssistantMarkdownToTelegramV2(plainChunk);
+      mid = await sendOrEditRobust(
+        ctx,
+        chatId,
+        payload,
+        mid,
+        metrics,
+        html ? "HTML" : "MarkdownV2",
+      );
       acc = acc.slice(splitAt).trimStart();
     }
     if (acc.trim().length > 0) {
-      const payload = html ? formatReasoningPhaseHtml(acc, false) : acc;
-      await sendOrEditRobust(ctx, chatId, payload, mid, metrics, html ? "HTML" : undefined);
+      const payload = html
+        ? formatReasoningPhaseHtml(acc, false)
+        : formatAssistantMarkdownToTelegramV2(acc);
+      await sendOrEditRobust(ctx, chatId, payload, mid, metrics, html ? "HTML" : "MarkdownV2");
       sentAny = true;
     }
     active.current = null;
@@ -269,13 +290,29 @@ export async function deliverStreamingReply(
       const plainChunk = acc.slice(0, splitAt);
       const payload = html
         ? formatReasoningPhaseHtml(plainChunk, false)
-        : plainChunk;
-      mid = await sendOrEditRobust(ctx, chatId, payload, mid, metrics, html ? "HTML" : undefined);
+        : formatAssistantMarkdownToTelegramV2(plainChunk);
+      mid = await sendOrEditRobust(
+        ctx,
+        chatId,
+        payload,
+        mid,
+        metrics,
+        html ? "HTML" : "MarkdownV2",
+      );
       acc = acc.slice(splitAt).trimStart();
     }
     const tailPlain = showCursor && !html ? `${acc}${CURSOR}` : acc;
-    const payload = html ? formatReasoningPhaseHtml(acc, showCursor) : tailPlain;
-    const newId = await sendOrEditRobust(ctx, chatId, payload, mid, metrics, html ? "HTML" : undefined);
+    const payload = html
+      ? formatReasoningPhaseHtml(acc, showCursor)
+      : formatAssistantMarkdownToTelegramV2(tailPlain);
+    const newId = await sendOrEditRobust(
+      ctx,
+      chatId,
+      payload,
+      mid,
+      metrics,
+      html ? "HTML" : "MarkdownV2",
+    );
     phase.messageId = newId;
     phase.accumulated = acc;
     phase.lastEdit = Date.now();
@@ -288,9 +325,41 @@ export async function deliverStreamingReply(
         const item = queue.shift()!;
         if (item.t === "tool") {
           await finalizePhase();
-          const toolHtml = formatToolStreamEventHtml(item.ev);
-          if (toolHtml) {
-            await replyRobust(ctx, toolHtml, metrics, "HTML");
+          const ev = item.ev;
+          if (ev.type === "tool_input") {
+            const html = formatToolInputOnlyHtml(ev.toolName, ev.input);
+            const mid = await replyRobust(ctx, html, metrics, "HTML");
+            if (mid !== undefined) {
+              pendingToolBubble.set(ev.toolCallId, {
+                messageId: mid,
+                toolName: ev.toolName,
+                input: ev.input,
+              });
+            }
+            sentAny = true;
+          } else {
+            const pending = pendingToolBubble.get(ev.toolCallId);
+            if (pending) {
+              const combined = formatToolCallCompleteHtml(
+                pending.toolName,
+                pending.input,
+                ev,
+              );
+              await sendOrEditRobust(
+                ctx,
+                chatId,
+                combined,
+                pending.messageId,
+                metrics,
+                "HTML",
+              );
+              pendingToolBubble.delete(ev.toolCallId);
+            } else {
+              const orphan = formatStandaloneToolResultHtml(ev);
+              if (orphan) {
+                await replyRobust(ctx, orphan, metrics, "HTML");
+              }
+            }
             sentAny = true;
           }
           continue;
@@ -320,11 +389,11 @@ export async function deliverStreamingReply(
     await finalizePhase();
 
     if (!sentAny && producerDone) {
-      await replyRobust(
+      void (await replyRobust(
         ctx,
         "(No assistant text this turn — tools or empty reply.)",
         metrics,
-      );
+      ));
     }
   })();
 
