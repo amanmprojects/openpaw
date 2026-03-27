@@ -1,3 +1,11 @@
+/**
+ * Telegram channel for the OpenPaw gateway: wires a grammy `Bot` to gateway
+ * commands, per-chat message serialization, chat preferences, and streaming
+ * assistant replies via `deliverStreamingReply` and `runtime.runTurn`.
+ *
+ * Exports `createTelegramChannelAdapter` for the multi-channel gateway and
+ * `runTelegramGateway` as a standalone long-polling entrypoint.
+ */
 import { Bot } from "grammy";
 import { createGatewayContext, type OpenPawGatewayContext } from "../bootstrap";
 import type { ChannelAdapter } from "../channel-adapter";
@@ -8,7 +16,12 @@ import {
 } from "./active-thread-store";
 import { createTelegramMessageQueue } from "./message-queue";
 import { registerOpenPawBotCommands } from "./bot-commands";
-import { restAfterCommand, shouldForwardTextToAgent } from "./reserved-command-filter";
+import {
+  firstCommandToken,
+  shouldForwardTextToAgent,
+  shouldReportUnknownOpenPawSlashCommand,
+} from "./reserved-command-filter";
+import { formatAvailableOpenPawSlashCommandsForUser } from "../slash-command-tokens";
 import { replyWithSessionsList } from "./sessions-list-reply";
 import { telegramSessionKey } from "./session-key";
 import { listTelegramSessionsForChat } from "./session-file-discovery";
@@ -19,6 +32,12 @@ import {
 } from "./chat-preferences";
 import { deliverStreamingReply } from "./stream-delivery";
 
+/**
+ * Registers Telegram handlers: session management (`/new`, `/sessions`, `/resume`),
+ * display prefs (`/reasoning`, `/tool_calls`), unknown OpenPaw slash-command help,
+ * and plain text forwarded to the agent. Work for each chat/topic is serialized
+ * through the per-key message queue.
+ */
 function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
   const { runtime } = ctx;
   const runNext = createTelegramMessageQueue();
@@ -62,10 +81,9 @@ function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
       return;
     }
     const queueKey = telegramSessionKey(grammyCtx);
-    const text = grammyCtx.message?.text ?? "";
     await runNext(queueKey, async () => {
       try {
-        const arg = restAfterCommand(text).toLowerCase();
+        const arg = String(grammyCtx.match ?? "").trim().toLowerCase();
         if (arg !== "show" && arg !== "hide") {
           await grammyCtx.reply("Usage: /reasoning show — or — /reasoning hide");
           return;
@@ -90,10 +108,9 @@ function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
       return;
     }
     const queueKey = telegramSessionKey(grammyCtx);
-    const text = grammyCtx.message?.text ?? "";
     await runNext(queueKey, async () => {
       try {
-        const arg = restAfterCommand(text).toLowerCase();
+        const arg = String(grammyCtx.match ?? "").trim().toLowerCase();
         if (arg !== "show" && arg !== "hide") {
           await grammyCtx.reply("Usage: /tool_calls show — or — /tool_calls hide");
           return;
@@ -118,10 +135,9 @@ function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
       return;
     }
     const queueKey = telegramSessionKey(grammyCtx);
-    const text = grammyCtx.message?.text ?? "";
     await runNext(queueKey, async () => {
       try {
-        const arg = restAfterCommand(text);
+        const arg = String(grammyCtx.match ?? "").trim();
         if (!/^\d+$/.test(arg)) {
           await grammyCtx.reply("Usage: /resume 1 — use /sessions to see numbers.");
           return;
@@ -150,6 +166,24 @@ function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
       }
     });
   });
+
+  bot
+    .on("message:text")
+    .filter(shouldReportUnknownOpenPawSlashCommand, async (grammyCtx) => {
+      const chatId = grammyCtx.chat?.id;
+      if (chatId === undefined) {
+        return;
+      }
+      const text = grammyCtx.message.text ?? "";
+      const queueKey = telegramSessionKey(grammyCtx);
+      const token = firstCommandToken(text) ?? "/?";
+      const available = formatAvailableOpenPawSlashCommandsForUser();
+      await runNext(queueKey, async () => {
+        await grammyCtx.reply(
+          `Unknown command ${token}. Available: ${available}.`,
+        );
+      });
+    });
 
   bot.on("message:text").filter(shouldForwardTextToAgent, async (grammyCtx) => {
     const text = grammyCtx.message.text;
@@ -189,6 +223,10 @@ function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
   });
 }
 
+/**
+ * Builds a {@link ChannelAdapter} that starts the Telegram bot with registered
+ * commands and long polling. Requires `channels.telegram.botToken` in config.
+ */
 export function createTelegramChannelAdapter(ctx: OpenPawGatewayContext): ChannelAdapter {
   const token = ctx.config.channels?.telegram?.botToken;
   if (!token) {
