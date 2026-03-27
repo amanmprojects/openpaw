@@ -1,16 +1,13 @@
 import type { Context } from "grammy";
 import { GrammyError } from "grammy";
 import type { ToolStreamEvent } from "../../agent/types";
-import { formatToolStreamEvent } from "../../agent/tool-stream-format";
 import type { TelegramChatPreferences } from "./chat-preferences";
+import { formatReasoningPhaseHtml, formatToolStreamEventHtml } from "./message-html";
 
 const EDIT_INTERVAL_MS = 550;
 const CURSOR = " ▉";
 const CHUNK_SAFE = 3800;
 const MAX_API_ATTEMPTS = 12;
-
-/** Prepended to reasoning-phase Telegram messages (plain text). */
-const REASONING_PREFIX = "💭 ";
 
 /** Counters and timing for one assistant turn delivered to Telegram. */
 export type TelegramDeliveryMetrics = {
@@ -22,7 +19,7 @@ export type TelegramDeliveryMetrics = {
 
 type Queued =
   | { t: "d"; phase: "text" | "reasoning"; v: string }
-  | { t: "tool"; v: string };
+  | { t: "tool"; ev: ToolStreamEvent };
 
 export type TelegramStreamHandlers = {
   onTextDelta: (delta: string) => void;
@@ -51,19 +48,21 @@ async function sendOrEditRobust(
   text: string,
   messageId: number | undefined,
   metrics: TelegramDeliveryMetrics,
+  parseMode?: "HTML",
 ): Promise<number | undefined> {
   if (!text) {
     return messageId;
   }
   const body = text.slice(0, 4096);
+  const extra = parseMode ? { parse_mode: parseMode as "HTML" } : {};
 
   for (let attempt = 0; attempt < MAX_API_ATTEMPTS; attempt++) {
     try {
       if (messageId !== undefined) {
-        await ctx.api.editMessageText(chatId, messageId, body);
+        await ctx.api.editMessageText(chatId, messageId, body, extra);
         return messageId;
       }
-      const sent = await ctx.reply(body);
+      const sent = await ctx.reply(body, extra);
       return sent.message_id;
     } catch (e) {
       if (isNotModifiedError(e)) {
@@ -88,7 +87,7 @@ async function sendOrEditRobust(
       if (messageId !== undefined) {
         try {
           metrics.fallbackReplies++;
-          const sent = await ctx.reply(body);
+          const sent = await ctx.reply(body, extra);
           return sent.message_id;
         } catch (fallbackErr) {
           console.warn("OpenPaw Telegram: fallback reply failed", fallbackErr);
@@ -108,14 +107,16 @@ async function replyRobust(
   ctx: Context,
   text: string,
   metrics: TelegramDeliveryMetrics,
+  parseMode?: "HTML",
 ): Promise<void> {
   const body = text.slice(0, 4096);
   if (!body) {
     return;
   }
+  const extra = parseMode ? { parse_mode: parseMode as "HTML" } : {};
   for (let attempt = 0; attempt < MAX_API_ATTEMPTS; attempt++) {
     try {
-      await ctx.reply(body);
+      await ctx.reply(body, extra);
       return;
     } catch (e) {
       if (e instanceof GrammyError && e.error_code === 429) {
@@ -139,7 +140,7 @@ async function replyRobust(
 
 type ActivePhase = {
   kind: "text" | "reasoning";
-  /** Full message body so far (includes {@link REASONING_PREFIX} for reasoning). No trailing cursor. */
+  /** Plain text: user-visible answer, or raw reasoning (HTML applied when sending). */
   accumulated: string;
   messageId: number | undefined;
   lastEdit: number;
@@ -149,10 +150,7 @@ type ActivePhase = {
 type PhaseRef = { current: ActivePhase | null };
 
 function phaseHasDisplayableContent(p: ActivePhase): boolean {
-  if (p.kind === "text") {
-    return p.accumulated.length > 0;
-  }
-  return p.accumulated.length > REASONING_PREFIX.length;
+  return p.accumulated.trim().length > 0;
 }
 
 /**
@@ -194,10 +192,7 @@ export async function deliverStreamingReply(
     },
     onToolStatus: prefs.showToolCalls
       ? (ev) => {
-          const line = formatToolStreamEvent(ev);
-          if (line) {
-            queue.push({ t: "tool", v: line });
-          }
+          queue.push({ t: "tool", ev });
         }
       : undefined,
   };
@@ -221,17 +216,22 @@ export async function deliverStreamingReply(
       active.current = null;
       return;
     }
+    const html = cur.kind === "reasoning";
     let acc = cur.accumulated;
     let mid = cur.messageId;
     while (acc.length > CHUNK_SAFE && mid !== undefined) {
       const cut = acc.lastIndexOf("\n", CHUNK_SAFE);
       const splitAt = cut > CHUNK_SAFE / 2 ? cut : CHUNK_SAFE;
-      const chunk = acc.slice(0, splitAt);
-      mid = await sendOrEditRobust(ctx, chatId, chunk, mid, metrics);
+      const plainChunk = acc.slice(0, splitAt);
+      const payload = html
+        ? formatReasoningPhaseHtml(plainChunk, false)
+        : plainChunk;
+      mid = await sendOrEditRobust(ctx, chatId, payload, mid, metrics, html ? "HTML" : undefined);
       acc = acc.slice(splitAt).trimStart();
     }
-    if (acc.length > 0) {
-      await sendOrEditRobust(ctx, chatId, acc, mid, metrics);
+    if (acc.trim().length > 0) {
+      const payload = html ? formatReasoningPhaseHtml(acc, false) : acc;
+      await sendOrEditRobust(ctx, chatId, payload, mid, metrics, html ? "HTML" : undefined);
       sentAny = true;
     }
     active.current = null;
@@ -240,7 +240,7 @@ export async function deliverStreamingReply(
   const startPhase = (kind: "text" | "reasoning"): void => {
     active.current = {
       kind,
-      accumulated: kind === "reasoning" ? REASONING_PREFIX : "",
+      accumulated: "",
       messageId: undefined,
       lastEdit: 0,
     };
@@ -260,17 +260,22 @@ export async function deliverStreamingReply(
     if (phase === null || !phaseHasDisplayableContent(phase)) {
       return;
     }
+    const html = phase.kind === "reasoning";
     let acc = phase.accumulated;
     let mid = phase.messageId;
     while (acc.length > CHUNK_SAFE && mid !== undefined) {
       const cut = acc.lastIndexOf("\n", CHUNK_SAFE);
       const splitAt = cut > CHUNK_SAFE / 2 ? cut : CHUNK_SAFE;
-      const chunk = acc.slice(0, splitAt);
-      mid = await sendOrEditRobust(ctx, chatId, chunk, mid, metrics);
+      const plainChunk = acc.slice(0, splitAt);
+      const payload = html
+        ? formatReasoningPhaseHtml(plainChunk, false)
+        : plainChunk;
+      mid = await sendOrEditRobust(ctx, chatId, payload, mid, metrics, html ? "HTML" : undefined);
       acc = acc.slice(splitAt).trimStart();
     }
-    const tail = showCursor ? `${acc}${CURSOR}` : acc;
-    const newId = await sendOrEditRobust(ctx, chatId, tail, mid, metrics);
+    const tailPlain = showCursor && !html ? `${acc}${CURSOR}` : acc;
+    const payload = html ? formatReasoningPhaseHtml(acc, showCursor) : tailPlain;
+    const newId = await sendOrEditRobust(ctx, chatId, payload, mid, metrics, html ? "HTML" : undefined);
     phase.messageId = newId;
     phase.accumulated = acc;
     phase.lastEdit = Date.now();
@@ -283,8 +288,11 @@ export async function deliverStreamingReply(
         const item = queue.shift()!;
         if (item.t === "tool") {
           await finalizePhase();
-          await replyRobust(ctx, item.v, metrics);
-          sentAny = true;
+          const toolHtml = formatToolStreamEventHtml(item.ev);
+          if (toolHtml) {
+            await replyRobust(ctx, toolHtml, metrics, "HTML");
+            sentAny = true;
+          }
           continue;
         }
 
