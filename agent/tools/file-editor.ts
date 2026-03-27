@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, parse, resolve, sep } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
@@ -22,8 +22,9 @@ function resolveSafe(allowedBase: string, userPath: string): string {
 }
 
 /**
- * Reads a file and returns numbered lines, optionally limited to a 1-based inclusive range.
- * {@link viewRange} uses `[start_line, end_line]`; `end_line === -1` means through EOF.
+ * Reads a file and returns numbered lines in Anthropic text-editor style: padded index, ` | `, content.
+ * Optional {@link viewRange} is `[start_line, end_line]` (1-based, inclusive); the slice uses the same
+ * rules as the classic str_replace editor (end is passed directly to {@link String#slice}’s end index).
  */
 async function readFileWithLines(
   absPath: string,
@@ -31,84 +32,84 @@ async function readFileWithLines(
 ): Promise<string> {
   const raw = await readFile(absPath, "utf-8");
   const lines = raw.split("\n");
-
-  if (!viewRange) {
-    return lines.map((line, i) => `${i + 1}: ${line}`).join("\n");
-  }
-
-  const [startLine, endLine] = viewRange;
-  if (startLine < 1) {
-    throw new Error(`view_range start_line must be >= 1, got ${startLine}`);
-  }
-  const startIdx = startLine - 1;
-  const endExclusive = endLine === -1 ? lines.length : endLine;
-  if (endLine !== -1 && endLine < startLine) {
-    throw new Error(
-      `view_range end_line must be >= start_line or -1, got [${startLine}, ${endLine}]`,
-    );
-  }
-  if (startIdx > lines.length) {
-    return "";
-  }
-  const slice = lines.slice(startIdx, Math.min(endExclusive, lines.length));
-  return slice.map((line, i) => `${startIdx + i + 1}: ${line}`).join("\n");
-}
-
-/**
- * Lists directory entries with a simple file/directory marker per line.
- */
-async function viewDirectory(absPath: string): Promise<string> {
-  const entries = await readdir(absPath, { withFileTypes: true });
-  return entries
-    .map((e) => (e.isDirectory() ? `📁 ${e.name}/` : `📄 ${e.name}`))
+  const start = viewRange ? viewRange[0] - 1 : 0;
+  const end = viewRange ? viewRange[1] : lines.length;
+  const width = String(lines.length).length;
+  return lines
+    .slice(start, end)
+    .map((l, i) => `${String(start + i + 1).padStart(width)} | ${l}`)
     .join("\n");
 }
 
 /**
- * Tool input schema kept simple for strict providers (e.g. Vertex/Gemini): avoid
- * `z.discriminatedUnion`, tuples, and `z.number().int()` — those can emit JSON Schema
- * that fails validation (integer min/max or `additionalProperties` placement).
+ * str_replace-style file editor (Anthropic `text_editor_20250728`-like), scoped by sandbox.
+ * Single flat input object so models can pass one JSON shape per call.
  */
-const FileEditorParams = z.union([
-  z.object({
-    command: z.literal("view"),
-    path: z.string().describe("File or directory path (relative to workspace root)"),
-    view_range: z
-      .object({
-        start_line: z.number().describe("1-based start line"),
-        end_line: z.number().describe("1-based inclusive end line, or -1 through EOF"),
-      })
-      .optional()
-      .describe("Optional line range; omit to read the whole file."),
-  }),
-  z.object({
-    command: z.literal("str_replace"),
-    path: z.string().describe("File path (relative to workspace root)"),
-    old_str: z
-      .string()
-      .describe("Exact string to replace — must match including whitespace/indentation"),
-    new_str: z
-      .string()
-      .describe("Replacement string. Can be empty to delete old_str."),
-  }),
-  z.object({
-    command: z.literal("create"),
-    path: z.string().describe("Path of the new file (relative to workspace root)"),
-    file_text: z.string().describe("Full content of the file to create"),
-  }),
-  z.object({
-    command: z.literal("insert"),
-    path: z.string().describe("File path (relative to workspace root)"),
-    insert_line: z
-      .number()
-      .describe("Line number after which to insert. 0 = beginning of file."),
-    insert_text: z.string().describe("Text to insert"),
-  }),
-  z.object({
-    command: z.literal("undo_edit"),
-    path: z.string().describe("File path whose last edit should be undone"),
-  }),
-]);
+const FileEditorInputSchema = z.object({
+  command: z
+    .enum([
+      "view",
+      "create",
+      "delete",
+      "str_replace",
+      "insert",
+      "delete_lines",
+      "undo_edit",
+    ])
+    .describe(
+      '"view" to read a file or list a directory, "create" to write a new file, ' +
+        '"delete" to remove a file, "str_replace" for an exact substring replace, ' +
+        '"insert" to add lines after a line number, "delete_lines" to remove a line range, ' +
+        '"undo_edit" to revert the last mutating change to that path.',
+    ),
+
+  path: z.string().describe("Relative or absolute path (sandbox still applies)."),
+
+  view_range: z
+    .array(z.number().int().positive())
+    .length(2)
+    .optional()
+    .describe("Optional [start_line, end_line] to view a slice (1-indexed, inclusive)."),
+
+  file_text: z.string().optional().describe('Full content for "create".'),
+
+  old_str: z
+    .string()
+    .optional()
+    .describe(
+      "Exact string to find for str_replace — must match whitespace/indentation; copy from view output.",
+    ),
+
+  new_str: z
+    .string()
+    .optional()
+    .describe("Replacement for str_replace; may be empty to delete old_str."),
+
+  insert_line: z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe("Insert insert_text AFTER this line; 0 inserts at the top."),
+
+  insert_text: z.string().optional().describe("Text to insert (may be multiple lines)."),
+
+  start_line: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("First line to delete (1-based, inclusive) for delete_lines."),
+
+  end_line: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("Last line to delete (1-based, inclusive) for delete_lines."),
+});
+
+type FileEditorInput = z.infer<typeof FileEditorInputSchema>;
 
 /**
  * Resolves the root directory for file_editor paths: workspace (or `FILE_EDITOR_ROOT`) when
@@ -122,74 +123,69 @@ function allowedBaseFor(workspaceRoot: string): string {
 }
 
 /**
- * Anthropic-style str_replace-based file editor: view, str_replace, create, insert, undo_edit.
- * Paths are confined under the workspace root (or `FILE_EDITOR_ROOT` when set), unless the
- * sandbox is turned off for this turn (then paths may be absolute or under the filesystem root).
+ * Portable str_replace-style file editor: view, create, delete, str_replace, insert, delete_lines,
+ * undo_edit. Paths are confined under the workspace root (or `FILE_EDITOR_ROOT` when set), unless
+ * the sandbox is off for this turn.
  */
 export function createFileEditorTool(workspaceRoot: string) {
   return tool({
-    description: `A file editor (str_replace-based). Commands:
-- view: read a file with line numbers, optional line range, or list a directory.
-- str_replace: replace exactly one occurrence of old_str with new_str (exact match).
-- create: create or overwrite a file (parent dirs created as needed).
-- insert: insert lines after insert_line (0 = start of file).
-- undo_edit: revert the last mutating change to that file.
+    description: `
+A file editor for viewing and editing files.
 
-Always view a file before str_replace. old_str must match exactly once (whitespace, newlines).`,
-    inputSchema: FileEditorParams,
-    execute: async (params): Promise<ToolSuccess | ToolFailure> => {
+COMMANDS:
+- view         → Read a file with line numbers (pipe-separated). Always do this before editing.
+- create       → Create a new file with given content.
+- delete       → Delete a file.
+- str_replace  → Replace an exact string with new text. old_str must match exactly, including
+                 whitespace and indentation. Use "view" first to copy it precisely.
+- insert       → Insert new lines after a given line number (0 = top).
+- delete_lines → Delete a range of lines (1-based, inclusive).
+- undo_edit    → Revert the last mutating change to that file (OpenPaw extension).
+
+IMPORTANT: For str_replace, copy old_str character-for-character from the view output.
+Even a single space difference will cause the edit to fail.
+`.trim(),
+    inputSchema: FileEditorInputSchema,
+    execute: async (params: FileEditorInput): Promise<ToolSuccess | ToolFailure> => {
       const allowedBase = allowedBaseFor(workspaceRoot);
+      const {
+        command,
+        path: filePath,
+        view_range,
+        file_text,
+        old_str,
+        new_str,
+        insert_line,
+        insert_text,
+        start_line,
+        end_line,
+      } = params;
+
       try {
-        switch (params.command) {
+        switch (command) {
           case "view": {
-            const abs = resolveSafe(allowedBase, params.path);
+            const abs = resolveSafe(allowedBase, filePath);
             const st = await stat(abs);
             if (st.isDirectory()) {
-              const listing = await viewDirectory(abs);
-              return { success: true, output: listing };
+              const names = await readdir(abs);
+              return {
+                success: true,
+                output: `Directory: ${filePath}\n${names.join("\n")}`,
+              };
             }
             const rangeTuple =
-              params.view_range !== undefined
-                ? ([params.view_range.start_line, params.view_range.end_line] as [
-                    number,
-                    number,
-                  ])
+              view_range !== undefined
+                ? ([view_range[0], view_range[1]] as [number, number])
                 : undefined;
             const content = await readFileWithLines(abs, rangeTuple);
             return { success: true, output: content };
           }
 
-          case "str_replace": {
-            const abs = resolveSafe(allowedBase, params.path);
-            const original = await readFile(abs, "utf-8");
-            const occurrences = original.split(params.old_str).length - 1;
-            if (occurrences === 0) {
-              return {
-                success: false,
-                error:
-                  `old_str not found in "${params.path}". ` +
-                  `Verify exact whitespace/indentation by running view first.`,
-              };
-            }
-            if (occurrences > 1) {
-              return {
-                success: false,
-                error:
-                  `old_str matched ${occurrences} locations — ` +
-                  `it must match exactly once. Make old_str more specific.`,
-              };
-            }
-            pushHistory(abs, original);
-            const updated = original.replace(params.old_str, params.new_str);
-            await writeFile(abs, updated, "utf-8");
-            return {
-              success: true,
-              output: "Successfully replaced text at exactly one location.",
-            };
-          }
-
           case "create": {
-            const abs = resolveSafe(allowedBase, params.path);
+            if (file_text == null) {
+              return { success: false, error: "file_text is required for create." };
+            }
+            const abs = resolveSafe(allowedBase, filePath);
             await mkdir(dirname(abs), { recursive: true });
             try {
               const existing = await readFile(abs, "utf-8");
@@ -197,55 +193,116 @@ Always view a file before str_replace. old_str must match exactly once (whitespa
             } catch {
               /* new file */
             }
-            await writeFile(abs, params.file_text, "utf-8");
+            await writeFile(abs, file_text, "utf-8");
+            const lineCount = file_text.split("\n").length;
             return {
               success: true,
-              output: `File created successfully at "${params.path}".`,
+              output: `Created ${filePath} (${lineCount} lines).`,
+            };
+          }
+
+          case "delete": {
+            const abs = resolveSafe(allowedBase, filePath);
+            const previous = await readFile(abs, "utf-8");
+            pushHistory(abs, previous);
+            await unlink(abs);
+            return { success: true, output: `Deleted ${filePath}.` };
+          }
+
+          case "str_replace": {
+            if (old_str == null) {
+              return { success: false, error: "old_str is required for str_replace." };
+            }
+            const abs = resolveSafe(allowedBase, filePath);
+            const content = await readFile(abs, "utf-8");
+            const occurrences = content.split(old_str).length - 1;
+            if (occurrences === 0) {
+              return {
+                success: false,
+                error:
+                  `old_str not found in ${filePath}. ` +
+                  `Tip: Use "view" to copy the exact string including whitespace/indentation.`,
+              };
+            }
+            if (occurrences > 1) {
+              return {
+                success: false,
+                error:
+                  `old_str matches ${occurrences} locations in ${filePath}. ` +
+                  `Add more surrounding context to old_str to make it unique.`,
+              };
+            }
+            pushHistory(abs, content);
+            await writeFile(abs, content.replace(old_str, new_str ?? ""), "utf-8");
+            return {
+              success: true,
+              output: `str_replace applied successfully in ${filePath}.`,
             };
           }
 
           case "insert": {
-            const abs = resolveSafe(allowedBase, params.path);
+            if (insert_line == null) {
+              return { success: false, error: "insert_line is required for insert." };
+            }
+            if (insert_text == null || insert_text === "") {
+              return { success: false, error: "insert_text is required for insert." };
+            }
+            const abs = resolveSafe(allowedBase, filePath);
             const original = await readFile(abs, "utf-8");
             const lines = original.split("\n");
-            const insertAfter = params.insert_line;
-            if (insertAfter < 0 || insertAfter > lines.length) {
-              return {
-                success: false,
-                error:
-                  `insert_line ${insertAfter} is out of range ` +
-                  `(file has ${lines.length} lines).`,
-              };
-            }
             pushHistory(abs, original);
-            const newLines = [
-              ...lines.slice(0, insertAfter),
-              ...params.insert_text.split("\n"),
-              ...lines.slice(insertAfter),
-            ];
-            await writeFile(abs, newLines.join("\n"), "utf-8");
+            lines.splice(insert_line, 0, ...insert_text.split("\n"));
+            await writeFile(abs, lines.join("\n"), "utf-8");
             return {
               success: true,
-              output:
-                `Inserted ${params.insert_text.split("\n").length} ` +
-                `line(s) after line ${insertAfter} in "${params.path}".`,
+              output: `Inserted ${insert_text.split("\n").length} line(s) after line ${insert_line} in ${filePath}.`,
+            };
+          }
+
+          case "delete_lines": {
+            if (start_line == null) {
+              return { success: false, error: "start_line is required for delete_lines." };
+            }
+            if (end_line == null) {
+              return { success: false, error: "end_line is required for delete_lines." };
+            }
+            const abs = resolveSafe(allowedBase, filePath);
+            const original = await readFile(abs, "utf-8");
+            const lines = original.split("\n");
+            pushHistory(abs, original);
+            lines.splice(start_line - 1, end_line - start_line + 1);
+            await writeFile(abs, lines.join("\n"), "utf-8");
+            return {
+              success: true,
+              output: `Deleted lines ${start_line}–${end_line} from ${filePath}.`,
             };
           }
 
           case "undo_edit": {
-            const abs = resolveSafe(allowedBase, params.path);
+            const abs = resolveSafe(allowedBase, filePath);
             const previous = popHistory(abs);
             if (previous === null) {
               return {
                 success: false,
-                error: `No edit history found for "${params.path}".`,
+                error: `No edit history found for "${filePath}".`,
               };
             }
-            await writeFile(abs, previous, "utf-8");
+            try {
+              await stat(abs);
+              await writeFile(abs, previous, "utf-8");
+            } catch {
+              await mkdir(dirname(abs), { recursive: true });
+              await writeFile(abs, previous, "utf-8");
+            }
             return {
               success: true,
-              output: `Reverted "${params.path}" to its previous state.`,
+              output: `Reverted "${filePath}" to its previous state.`,
             };
+          }
+
+          default: {
+            const _exhaustive: never = command;
+            return { success: false, error: `Unknown command: ${_exhaustive}` };
           }
         }
       } catch (err: unknown) {

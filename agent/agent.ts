@@ -12,11 +12,13 @@ import type { RunTurnParams } from "./types";
 import { isSandboxRestricted, runWithTurnContext } from "./turn-context";
 import { createBashTool } from "./tools/bash";
 import { createFileEditorTool } from "./tools/file-editor";
+import { createListDirTool } from "./tools/list-dir";
 
 function createTools(workspacePath: string) {
   return {
     bash: createBashTool(workspacePath),
     file_editor: createFileEditorTool(workspacePath),
+    list_dir: createListDirTool(workspacePath),
   };
 }
 
@@ -30,13 +32,13 @@ export function createOpenPawAgent(config: OpenPawConfig, workspacePath: string)
   return new ToolLoopAgent({
     model: createLanguageModel(config),
     instructions:
-      "You are OpenPaw, a capable assistant. Follow workspace instructions in the system prompt. Use the file_editor tool: view before str_replace; str_replace requires an exact single match for old_str.",
+      "You are OpenPaw, a capable assistant. Follow workspace instructions in the system prompt. Use the file_editor tool: view before str_replace; str_replace needs an exact single match for old_str; delete/delete_lines/undo_edit are available when needed.",
     tools,
     prepareCall: async (options) => {
       let instructions = await buildSystemPrompt(workspacePath, config.personality);
       if (!isSandboxRestricted()) {
         instructions +=
-          "\n\n## Sandbox (this turn)\nFilesystem sandbox is OFF: file_editor may use absolute paths or paths anywhere under the filesystem root; bash runs with cwd set to the user home directory, not the workspace root.";
+          "\n\n## Sandbox (this turn)\nFilesystem sandbox is OFF: file_editor and list_dir may use absolute paths or paths anywhere under the filesystem root; bash runs with cwd set to the user home directory, not the workspace root.";
       }
       return { ...options, instructions };
     },
