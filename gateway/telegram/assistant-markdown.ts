@@ -4,30 +4,25 @@
  */
 import { convert } from "telegram-markdown-v2";
 
-/**
- * Replaces ATX heading lines that have no visible title (only `#`…`######` and whitespace).
- * remark turns those into empty emphasis (`**`), which breaks Telegram MarkdownV2 while streaming.
- * Escaping each `#` yields a plain paragraph line that displays as the original hashes.
- */
-function neutralizeEmptyAtxHeadingLines(markdown: string): string {
-  return markdown.replace(/^#{1,6}\s*$/gm, (line) => {
-    const hashes = line.match(/^(#{1,6})/)?.[1] ?? "";
-    return hashes.split("").map(() => "\\#").join("");
-  });
-}
+/** Body to send and whether Telegram should parse it as MarkdownV2 (omit for plain text). */
+export type AssistantTelegramPayload = {
+  body: string;
+  parseMode: "MarkdownV2" | undefined;
+};
 
 /**
- * Converts model markdown to Telegram `parse_mode: MarkdownV2` text.
- * Uses `keep` so blockquotes stay as `>` lines; unsupported constructs are passed through per library.
+ * Converts model markdown for the main assistant bubble.
+ * On success returns MarkdownV2; on converter failure returns plain text with no parse_mode
+ * so Telegram does not treat `_*[]()` as formatting.
  */
-export function formatAssistantMarkdownToTelegramV2(markdown: string): string {
+export function formatAssistantMarkdownForTelegram(markdown: string): AssistantTelegramPayload {
   if (!markdown) {
-    return markdown;
+    return { body: markdown, parseMode: undefined };
   }
   try {
-    return convert(neutralizeEmptyAtxHeadingLines(markdown), "escape");
+    return { body: convert(markdown, "escape"), parseMode: "MarkdownV2" };
   } catch (e) {
     console.warn("OpenPaw: telegram-markdown-v2 convert failed", e);
-    return markdown.slice(0, 4096);
+    return { body: markdown.slice(0, 4096), parseMode: undefined };
   }
 }

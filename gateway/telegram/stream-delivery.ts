@@ -2,7 +2,10 @@ import type { Context } from "grammy";
 import { GrammyError } from "grammy";
 import type { ToolStreamEvent } from "../../agent/types";
 import type { TelegramChatPreferences } from "./chat-preferences";
-import { formatAssistantMarkdownToTelegramV2 } from "./assistant-markdown";
+import {
+  formatAssistantMarkdownForTelegram,
+  type AssistantTelegramPayload,
+} from "./assistant-markdown";
 import {
   formatReasoningPhaseHtml,
   formatStandaloneToolResultHtml,
@@ -41,12 +44,35 @@ function isNotModifiedError(err: unknown): boolean {
   );
 }
 
+/** Telegram 400 errors when MarkdownV2/HTML entities are invalid. */
+function isTelegramEntityParseError(err: unknown): boolean {
+  if (!(err instanceof GrammyError) || err.error_code !== 400) {
+    return false;
+  }
+  const d = typeof err.description === "string" ? err.description.toLowerCase() : "";
+  return (
+    (d.includes("parse") && d.includes("entit")) ||
+    d.includes("can't parse entities") ||
+    d.includes("cannot parse entities") ||
+    d.includes("find end")
+  );
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Optional plain-text recovery for MarkdownV2 entity errors on the assistant text phase only. */
+type SendOrEditOptions = {
+  /** Pre-conversion assistant text; used when Telegram rejects MarkdownV2 entities. */
+  plainFallbackBody?: string;
+  /** Called when switching to plain after an entity parse error (rest of phase should skip V2). */
+  onEntityParseUsePlainForRestOfPhase?: () => void;
+};
+
 /**
  * Sends or edits a message with 429 retries, treats "not modified" as OK, and falls back to reply after edit failures.
+ * MarkdownV2 entity errors retry immediately as plain text (no parse_mode) using plainFallbackBody when provided.
  */
 async function sendOrEditRobust(
   ctx: Context,
@@ -55,20 +81,26 @@ async function sendOrEditRobust(
   messageId: number | undefined,
   metrics: TelegramDeliveryMetrics,
   parseMode?: "HTML" | "MarkdownV2",
+  options?: SendOrEditOptions,
 ): Promise<number | undefined> {
   if (!text) {
     return messageId;
   }
   const body = text.slice(0, 4096);
-  const extra = parseMode ? { parse_mode: parseMode } : {};
+  const plainFallbackBody = options?.plainFallbackBody;
+  const onEntityParseUsePlainForRestOfPhase = options?.onEntityParseUsePlainForRestOfPhase;
+
+  let activeBody = body;
+  let activeExtra = parseMode ? { parse_mode: parseMode } : {};
+  let switchedToPlainAfterEntityError = false;
 
   for (let attempt = 0; attempt < MAX_API_ATTEMPTS; attempt++) {
     try {
       if (messageId !== undefined) {
-        await ctx.api.editMessageText(chatId, messageId, body, extra);
+        await ctx.api.editMessageText(chatId, messageId, activeBody, activeExtra);
         return messageId;
       }
-      const sent = await ctx.reply(body, extra);
+      const sent = await ctx.reply(activeBody, activeExtra);
       return sent.message_id;
     } catch (e) {
       if (isNotModifiedError(e)) {
@@ -82,6 +114,22 @@ async function sendOrEditRobust(
         continue;
       }
 
+      if (
+        isTelegramEntityParseError(e) &&
+        parseMode === "MarkdownV2" &&
+        plainFallbackBody !== undefined &&
+        !switchedToPlainAfterEntityError
+      ) {
+        const plain = plainFallbackBody.slice(0, 4096);
+        if (plain.length > 0) {
+          activeBody = plain;
+          activeExtra = {};
+          switchedToPlainAfterEntityError = true;
+          onEntityParseUsePlainForRestOfPhase?.();
+          continue;
+        }
+      }
+
       console.warn(
         "OpenPaw Telegram: send/edit failed",
         e instanceof GrammyError
@@ -93,9 +141,25 @@ async function sendOrEditRobust(
       if (messageId !== undefined) {
         try {
           metrics.fallbackReplies++;
-          const sent = await ctx.reply(body, extra);
+          const sent = await ctx.reply(activeBody, activeExtra);
           return sent.message_id;
         } catch (fallbackErr) {
+          if (
+            isTelegramEntityParseError(fallbackErr) &&
+            parseMode === "MarkdownV2" &&
+            plainFallbackBody !== undefined
+          ) {
+            const plain = plainFallbackBody.slice(0, 4096);
+            if (plain.length > 0) {
+              try {
+                const sent = await ctx.reply(plain, {});
+                onEntityParseUsePlainForRestOfPhase?.();
+                return sent.message_id;
+              } catch (plainReplyErr) {
+                console.warn("OpenPaw Telegram: fallback plain reply failed", plainReplyErr);
+              }
+            }
+          }
           console.warn("OpenPaw Telegram: fallback reply failed", fallbackErr);
         }
       }
@@ -114,15 +178,23 @@ async function replyRobust(
   text: string,
   metrics: TelegramDeliveryMetrics,
   parseMode?: "HTML" | "MarkdownV2",
+  options?: Pick<SendOrEditOptions, "plainFallbackBody" | "onEntityParseUsePlainForRestOfPhase">,
 ): Promise<number | undefined> {
   const body = text.slice(0, 4096);
   if (!body) {
     return undefined;
   }
   const extra = parseMode ? { parse_mode: parseMode } : {};
+  const plainFallbackBody = options?.plainFallbackBody;
+  const onEntityParseUsePlainForRestOfPhase = options?.onEntityParseUsePlainForRestOfPhase;
+
+  let activeBody = body;
+  let activeExtra = extra;
+  let switchedToPlainAfterEntityError = false;
+
   for (let attempt = 0; attempt < MAX_API_ATTEMPTS; attempt++) {
     try {
-      const sent = await ctx.reply(body, extra);
+      const sent = await ctx.reply(activeBody, activeExtra);
       return sent.message_id;
     } catch (e) {
       if (e instanceof GrammyError && e.error_code === 429) {
@@ -132,6 +204,23 @@ async function replyRobust(
         await sleep(sec * 1000);
         continue;
       }
+
+      if (
+        isTelegramEntityParseError(e) &&
+        parseMode === "MarkdownV2" &&
+        plainFallbackBody !== undefined &&
+        !switchedToPlainAfterEntityError
+      ) {
+        const plain = plainFallbackBody.slice(0, 4096);
+        if (plain.length > 0) {
+          activeBody = plain;
+          activeExtra = {};
+          switchedToPlainAfterEntityError = true;
+          onEntityParseUsePlainForRestOfPhase?.();
+          continue;
+        }
+      }
+
       metrics.editFailures++;
       console.warn(
         "OpenPaw Telegram: reply failed",
@@ -151,6 +240,8 @@ type ActivePhase = {
   accumulated: string;
   messageId: number | undefined;
   lastEdit: number;
+  /** After Telegram rejects MarkdownV2, skip conversion for remaining edits in this text phase. */
+  forcePlainForRestOfPhase: boolean;
 };
 
 /** Ref so TypeScript keeps correct typing across `await` inside the consumer loop. */
@@ -158,6 +249,33 @@ type PhaseRef = { current: ActivePhase | null };
 
 function phaseHasDisplayableContent(p: ActivePhase): boolean {
   return p.accumulated.trim().length > 0;
+}
+
+/**
+ * Builds payload for the main assistant text phase: MarkdownV2 when allowed, else plain.
+ */
+function textPhaseTelegramPayload(
+  plainMarkdownSource: string,
+  forcePlain: boolean,
+): AssistantTelegramPayload {
+  if (forcePlain) {
+    return { body: plainMarkdownSource.slice(0, 4096), parseMode: undefined };
+  }
+  return formatAssistantMarkdownForTelegram(plainMarkdownSource);
+}
+
+/**
+ * Returns message body and optional `MarkdownV2` parse mode for the main assistant bubble.
+ * Omits `parse_mode` when the phase is forced plain or the converter fell back to raw text.
+ */
+function textPhaseSendArgs(
+  plainMarkdownSource: string,
+  forcePlain: boolean,
+): { body: string; parseMode?: "MarkdownV2" } {
+  const p = textPhaseTelegramPayload(plainMarkdownSource, forcePlain);
+  return p.parseMode === "MarkdownV2"
+    ? { body: p.body, parseMode: "MarkdownV2" }
+    : { body: p.body };
 }
 
 /**
@@ -231,28 +349,65 @@ export async function deliverStreamingReply(
     const html = cur.kind === "reasoning";
     let acc = cur.accumulated;
     let mid = cur.messageId;
+    const textOptions = (plainSlice: string): SendOrEditOptions | undefined =>
+      html
+        ? undefined
+        : {
+            plainFallbackBody: plainSlice.slice(0, 4096),
+            onEntityParseUsePlainForRestOfPhase: () => {
+              cur.forcePlainForRestOfPhase = true;
+            },
+          };
+
     while (acc.length > CHUNK_SAFE && mid !== undefined) {
       const cut = acc.lastIndexOf("\n", CHUNK_SAFE);
       const splitAt = cut > CHUNK_SAFE / 2 ? cut : CHUNK_SAFE;
       const plainChunk = acc.slice(0, splitAt);
-      const payload = html
-        ? formatReasoningPhaseHtml(plainChunk, false)
-        : formatAssistantMarkdownToTelegramV2(plainChunk);
-      mid = await sendOrEditRobust(
-        ctx,
-        chatId,
-        payload,
-        mid,
-        metrics,
-        html ? "HTML" : "MarkdownV2",
-      );
+      if (html) {
+        mid = await sendOrEditRobust(
+          ctx,
+          chatId,
+          formatReasoningPhaseHtml(plainChunk, false),
+          mid,
+          metrics,
+          "HTML",
+        );
+      } else {
+        const t = textPhaseSendArgs(plainChunk, cur.forcePlainForRestOfPhase);
+        mid = await sendOrEditRobust(
+          ctx,
+          chatId,
+          t.body,
+          mid,
+          metrics,
+          t.parseMode,
+          textOptions(plainChunk),
+        );
+      }
       acc = acc.slice(splitAt).trimStart();
     }
     if (acc.trim().length > 0) {
-      const payload = html
-        ? formatReasoningPhaseHtml(acc, false)
-        : formatAssistantMarkdownToTelegramV2(acc);
-      await sendOrEditRobust(ctx, chatId, payload, mid, metrics, html ? "HTML" : "MarkdownV2");
+      if (html) {
+        await sendOrEditRobust(
+          ctx,
+          chatId,
+          formatReasoningPhaseHtml(acc, false),
+          mid,
+          metrics,
+          "HTML",
+        );
+      } else {
+        const t = textPhaseSendArgs(acc, cur.forcePlainForRestOfPhase);
+        await sendOrEditRobust(
+          ctx,
+          chatId,
+          t.body,
+          mid,
+          metrics,
+          t.parseMode,
+          textOptions(acc),
+        );
+      }
       sentAny = true;
     }
     active.current = null;
@@ -264,6 +419,7 @@ export async function deliverStreamingReply(
       accumulated: "",
       messageId: undefined,
       lastEdit: 0,
+      forcePlainForRestOfPhase: false,
     };
   };
 
@@ -284,35 +440,66 @@ export async function deliverStreamingReply(
     const html = phase.kind === "reasoning";
     let acc = phase.accumulated;
     let mid = phase.messageId;
+    const textOptions = (plainSlice: string): SendOrEditOptions | undefined =>
+      html
+        ? undefined
+        : {
+            plainFallbackBody: plainSlice.slice(0, 4096),
+            onEntityParseUsePlainForRestOfPhase: () => {
+              phase.forcePlainForRestOfPhase = true;
+            },
+          };
+
     while (acc.length > CHUNK_SAFE && mid !== undefined) {
       const cut = acc.lastIndexOf("\n", CHUNK_SAFE);
       const splitAt = cut > CHUNK_SAFE / 2 ? cut : CHUNK_SAFE;
       const plainChunk = acc.slice(0, splitAt);
-      const payload = html
-        ? formatReasoningPhaseHtml(plainChunk, false)
-        : formatAssistantMarkdownToTelegramV2(plainChunk);
-      mid = await sendOrEditRobust(
-        ctx,
-        chatId,
-        payload,
-        mid,
-        metrics,
-        html ? "HTML" : "MarkdownV2",
-      );
+      if (html) {
+        mid = await sendOrEditRobust(
+          ctx,
+          chatId,
+          formatReasoningPhaseHtml(plainChunk, false),
+          mid,
+          metrics,
+          "HTML",
+        );
+      } else {
+        const t = textPhaseSendArgs(plainChunk, phase.forcePlainForRestOfPhase);
+        mid = await sendOrEditRobust(
+          ctx,
+          chatId,
+          t.body,
+          mid,
+          metrics,
+          t.parseMode,
+          textOptions(plainChunk),
+        );
+      }
       acc = acc.slice(splitAt).trimStart();
     }
     const tailPlain = showCursor && !html ? `${acc}${CURSOR}` : acc;
-    const payload = html
-      ? formatReasoningPhaseHtml(acc, showCursor)
-      : formatAssistantMarkdownToTelegramV2(tailPlain);
-    const newId = await sendOrEditRobust(
-      ctx,
-      chatId,
-      payload,
-      mid,
-      metrics,
-      html ? "HTML" : "MarkdownV2",
-    );
+    let newId: number | undefined;
+    if (html) {
+      newId = await sendOrEditRobust(
+        ctx,
+        chatId,
+        formatReasoningPhaseHtml(acc, showCursor),
+        mid,
+        metrics,
+        "HTML",
+      );
+    } else {
+      const t = textPhaseSendArgs(tailPlain, phase.forcePlainForRestOfPhase);
+      newId = await sendOrEditRobust(
+        ctx,
+        chatId,
+        t.body,
+        mid,
+        metrics,
+        t.parseMode,
+        textOptions(tailPlain),
+      );
+    }
     phase.messageId = newId;
     phase.accumulated = acc;
     phase.lastEdit = Date.now();
@@ -327,8 +514,8 @@ export async function deliverStreamingReply(
           await finalizePhase();
           const ev = item.ev;
           if (ev.type === "tool_input") {
-            const html = formatToolInputOnlyHtml(ev.toolName, ev.input);
-            const mid = await replyRobust(ctx, html, metrics, "HTML");
+            const toolHtml = formatToolInputOnlyHtml(ev.toolName, ev.input);
+            const mid = await replyRobust(ctx, toolHtml, metrics, "HTML");
             if (mid !== undefined) {
               pendingToolBubble.set(ev.toolCallId, {
                 messageId: mid,
