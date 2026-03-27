@@ -63,7 +63,7 @@ export function createAgentRuntime(
 
 async function runTurnWithAgent(
   agent: OpenPawAgent,
-  { sessionId, userText, onTextDelta, onReasoningDelta }: RunTurnParams,
+  { sessionId, userText, onTextDelta, onReasoningDelta, onToolStatus }: RunTurnParams,
 ): Promise<{ text: string }> {
   const prior = await loadSessionMessages(sessionId, agent.tools);
   const userMessage = {
@@ -79,6 +79,7 @@ async function runTurnWithAgent(
   });
 
   let accumulated = "";
+  const toolNameByCallId = new Map<string, string>();
 
   const stream = await createAgentUIStream({
     agent,
@@ -95,6 +96,39 @@ async function runTurnWithAgent(
       onTextDelta?.(d);
     } else if (chunk.type === "reasoning-delta" && "delta" in chunk) {
       onReasoningDelta?.(chunk.delta);
+    } else if (chunk.type === "tool-input-start") {
+      toolNameByCallId.set(chunk.toolCallId, chunk.toolName);
+    } else if (chunk.type === "tool-input-available") {
+      toolNameByCallId.set(chunk.toolCallId, chunk.toolName);
+      onToolStatus?.({
+        type: "tool_input",
+        toolCallId: chunk.toolCallId,
+        toolName: chunk.toolName,
+        input: chunk.input,
+      });
+    } else if (chunk.type === "tool-output-available") {
+      const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
+      onToolStatus?.({
+        type: "tool_output",
+        toolCallId: chunk.toolCallId,
+        toolName,
+        output: chunk.output,
+      });
+    } else if (chunk.type === "tool-output-error") {
+      const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
+      onToolStatus?.({
+        type: "tool_error",
+        toolCallId: chunk.toolCallId,
+        toolName,
+        errorText: chunk.errorText,
+      });
+    } else if (chunk.type === "tool-output-denied") {
+      const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
+      onToolStatus?.({
+        type: "tool_denied",
+        toolCallId: chunk.toolCallId,
+        toolName,
+      });
     }
   }
 

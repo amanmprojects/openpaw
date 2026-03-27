@@ -4,6 +4,8 @@ const OPENPAW_COMMANDS = [
   { command: "new", description: "Start a fresh conversation" },
   { command: "sessions", description: "List saved sessions for this chat" },
   { command: "resume", description: "Resume a session by number from /sessions" },
+  { command: "reasoning", description: "show or hide — reasoning bubbles in Telegram" },
+  { command: "tool_calls", description: "show or hide — tool status lines in Telegram" },
 ];
 
 /**

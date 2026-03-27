@@ -2,7 +2,13 @@
  * Shared parsing for OpenPaw slash commands across channels (Telegram, TUI).
  */
 
-export const RESERVED_SLASH_COMMANDS = new Set(["/new", "/sessions", "/resume"]);
+export const RESERVED_SLASH_COMMANDS = new Set([
+  "/new",
+  "/sessions",
+  "/resume",
+  "/reasoning",
+  "/tool_calls",
+]);
 
 /**
  * First whitespace-separated token of the message, lowercased; strips optional `@botname` suffix.

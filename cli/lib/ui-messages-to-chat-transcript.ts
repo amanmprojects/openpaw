@@ -9,24 +9,8 @@ import {
   isTextUIPart,
   isToolUIPart,
 } from "ai";
+import { truncateJson } from "../../agent/tool-stream-format";
 import type { AssistantSegment, ChatLine } from "./chat-transcript-types";
-
-const MAX_JSON_LEN = 200;
-
-/**
- * Serializes a value for one-line TUI display, capped in length.
- */
-function truncateJson(value: unknown): string {
-  try {
-    const s = typeof value === "string" ? value : JSON.stringify(value);
-    if (s.length <= MAX_JSON_LEN) {
-      return s;
-    }
-    return `${s.slice(0, MAX_JSON_LEN)}…`;
-  } catch {
-    return String(value);
-  }
-}
 
 /**
  * Builds a short summary line for a tool invocation part (static or dynamic tool).
@@ -89,7 +73,7 @@ function partsToAssistantSegments(parts: UIMessage["parts"]): AssistantSegment[]
         `[file: ${part.filename ?? part.mediaType}]`,
       );
     } else if (isToolUIPart(part)) {
-      segments = mergeAssistantSegment(segments, "text", formatToolPartSummary(part));
+      segments = mergeAssistantSegment(segments, "tool", formatToolPartSummary(part));
     }
   }
   return segments;

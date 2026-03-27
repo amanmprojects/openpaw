@@ -7,7 +7,8 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { TextAttributes, type SyntaxStyle } from "@opentui/core";
 import type { AgentRuntime } from "../../agent/agent";
 import { loadSessionMessages } from "../../agent/session-store";
-import type { SessionId } from "../../agent/types";
+import { formatToolStreamEvent } from "../../agent/tool-stream-format";
+import type { SessionId, ToolStreamEvent } from "../../agent/types";
 import {
   firstCommandToken,
   RESERVED_SLASH_COMMANDS,
@@ -119,7 +120,7 @@ function ChatMessageBlock({
         ) : (
           <>
             {nonEmpty.map((s, i) =>
-              s.kind === "reasoning" ? (
+              s.kind === "reasoning" || s.kind === "tool" ? (
                 <box key={i} flexDirection="column" paddingTop={1} paddingBottom={1}>
                   <text fg={ONBOARD.hint}>{s.text}</text>
                 </box>
@@ -335,6 +336,17 @@ export function ChatApp({
         return true;
       }
 
+      if (token === "/reasoning" || token === "/tool_calls") {
+        setLines((prev) => [
+          ...prev,
+          {
+            role: "system",
+            text: `${token} is only available in the Telegram channel (same bot). Terminal chat always shows the full stream.`,
+          },
+        ]);
+        return true;
+      }
+
       if (token === "/resume") {
         const arg = restAfterCommand(text);
         if (!/^\d+$/.test(arg)) {
@@ -443,7 +455,7 @@ export function ChatApp({
             ...prev,
             {
               role: "system",
-              text: `Unknown command ${firstSeg}. Try /new, /sessions, or /resume.`,
+              text: `Unknown command ${firstSeg}. Try /new, /sessions, /resume, /reasoning, or /tool_calls.`,
             },
           ]);
           setDraft("");
@@ -496,6 +508,28 @@ export function ChatApp({
           },
           onTextDelta: (delta) => {
             assistantSegments = appendAssistantSegment(assistantSegments, "text", delta);
+            const snapshot = assistantSegments;
+            setLines((prev) => {
+              const next = [...prev];
+              const last = next[next.length - 1];
+              if (last?.role === "assistant") {
+                next[next.length - 1] = { role: "assistant", segments: snapshot };
+              }
+              return next;
+            });
+          },
+          onToolStatus: (ev: ToolStreamEvent) => {
+            const line = formatToolStreamEvent(ev);
+            if (!line) {
+              return;
+            }
+            const lastSeg = assistantSegments[assistantSegments.length - 1];
+            const prefix = lastSeg?.kind === "tool" ? "\n" : "";
+            assistantSegments = appendAssistantSegment(
+              assistantSegments,
+              "tool",
+              `${prefix}${line}`,
+            );
             const snapshot = assistantSegments;
             setLines((prev) => {
               const next = [...prev];

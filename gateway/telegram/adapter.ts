@@ -13,6 +13,10 @@ import { replyWithSessionsList } from "./sessions-list-reply";
 import { telegramSessionKey } from "./session-key";
 import { listTelegramSessionsForChat } from "./session-file-discovery";
 import { formatTelegramSessionLabel } from "./session-label";
+import {
+  getTelegramChatPreferences,
+  setTelegramChatPreferences,
+} from "./chat-preferences";
 import { deliverStreamingReply } from "./stream-delivery";
 
 function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
@@ -45,6 +49,62 @@ function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
     await runNext(queueKey, async () => {
       try {
         await replyWithSessionsList(grammyCtx, chatId);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await grammyCtx.reply(`OpenPaw error: ${msg}`);
+      }
+    });
+  });
+
+  bot.command("reasoning", async (grammyCtx) => {
+    const chatId = grammyCtx.chat?.id;
+    if (chatId === undefined) {
+      return;
+    }
+    const queueKey = telegramSessionKey(grammyCtx);
+    const text = grammyCtx.message?.text ?? "";
+    await runNext(queueKey, async () => {
+      try {
+        const arg = restAfterCommand(text).toLowerCase();
+        if (arg !== "show" && arg !== "hide") {
+          await grammyCtx.reply("Usage: /reasoning show — or — /reasoning hide");
+          return;
+        }
+        const showReasoning = arg === "show";
+        await setTelegramChatPreferences(chatId, { showReasoning });
+        await grammyCtx.reply(
+          showReasoning
+            ? "Reasoning will appear as separate messages."
+            : "Reasoning messages are hidden (session still saves them).",
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await grammyCtx.reply(`OpenPaw error: ${msg}`);
+      }
+    });
+  });
+
+  bot.command("tool_calls", async (grammyCtx) => {
+    const chatId = grammyCtx.chat?.id;
+    if (chatId === undefined) {
+      return;
+    }
+    const queueKey = telegramSessionKey(grammyCtx);
+    const text = grammyCtx.message?.text ?? "";
+    await runNext(queueKey, async () => {
+      try {
+        const arg = restAfterCommand(text).toLowerCase();
+        if (arg !== "show" && arg !== "hide") {
+          await grammyCtx.reply("Usage: /tool_calls show — or — /tool_calls hide");
+          return;
+        }
+        const showToolCalls = arg === "show";
+        await setTelegramChatPreferences(chatId, { showToolCalls });
+        await grammyCtx.reply(
+          showToolCalls
+            ? "Tool call status lines will be shown."
+            : "Tool call status lines are hidden (session still saves them).",
+        );
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         await grammyCtx.reply(`OpenPaw error: ${msg}`);
@@ -99,16 +159,22 @@ function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
 
     const queueKey = telegramSessionKey(grammyCtx);
     const chatId = grammyCtx.chat?.id;
-    const persistenceId =
-      chatId !== undefined ? await getTelegramPersistenceSessionId(chatId) : queueKey;
+    if (chatId === undefined) {
+      return;
+    }
+
+    const persistenceId = await getTelegramPersistenceSessionId(chatId);
+    const prefs = await getTelegramChatPreferences(chatId);
 
     await runNext(queueKey, async () => {
       try {
-        await deliverStreamingReply(grammyCtx, async (push) => {
+        await deliverStreamingReply(grammyCtx, prefs, async (handlers) => {
           await runtime.runTurn({
             sessionId: persistenceId,
             userText: text,
-            onTextDelta: push,
+            onTextDelta: handlers.onTextDelta,
+            onReasoningDelta: handlers.onReasoningDelta,
+            onToolStatus: handlers.onToolStatus,
           });
         });
       } catch (e) {
