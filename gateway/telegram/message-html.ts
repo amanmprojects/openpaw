@@ -43,7 +43,10 @@ function formatYamlScalar(v: unknown): string {
   }
 }
 
-function linesForObject(obj: Record<string, unknown>, indent: number): string[] {
+function linesForObject(
+  obj: Record<string, unknown>,
+  indent: number,
+): string[] {
   const pad = "  ".repeat(indent);
   const out: string[] = [];
   for (const [k, v] of Object.entries(obj)) {
@@ -72,13 +75,16 @@ export function toolInputToYamlLike(toolName: string, input: unknown): string {
 /**
  * Full HTML message for a reasoning phase (expandable blockquote for visual separation).
  */
-export function formatReasoningPhaseHtml(plain: string, showCursor: boolean): string {
+export function formatReasoningPhaseHtml(
+  plain: string,
+  showCursor: boolean,
+): string {
   const trimmed = plain.trimEnd();
   if (!trimmed) {
     return "";
   }
   const inner = truncateInner(escapeTelegramHtml(trimmed), 200);
-  const block = `<b>💭 Reasoning</b>\n<blockquote expandable>${inner}</blockquote>`;
+  const block = `<b>Reasoning</b>\n<blockquote expandable>${inner}</blockquote>`;
   return showCursor ? `${block}${STREAMING_CURSOR_PLAIN}` : block;
 }
 
