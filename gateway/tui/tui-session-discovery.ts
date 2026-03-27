@@ -4,20 +4,17 @@ import { readdir, stat } from "node:fs/promises";
 import { getSessionsDir } from "../../config/paths";
 import type { SessionId } from "../../agent/types";
 import { TUI_ACTIVE_THREAD_FILENAME } from "./constants";
+import {
+  TELEGRAM_ACTIVE_THREADS_FILENAME,
+  TELEGRAM_CHAT_PREFERENCES_FILENAME,
+} from "../telegram/constants";
 
 export type TuiSessionListEntry = {
   sessionId: SessionId;
   mtimeMs: number;
 };
 
-/**
- * Maps a sessions-dir filename stem back to a TUI persistence session id, or null if not a TUI session file.
- */
-function parseTuiSessionFilename(filename: string): SessionId | null {
-  if (!filename.endsWith(".json") || filename === TUI_ACTIVE_THREAD_FILENAME) {
-    return null;
-  }
-  const stem = filename.slice(0, -".json".length);
+function parseTuiSessionFilename(stem: string): SessionId | null {
   if (stem === "tui_main") {
     return "tui:main";
   }
@@ -31,8 +28,46 @@ function parseTuiSessionFilename(filename: string): SessionId | null {
   return null;
 }
 
+function parseTelegramSessionFilename(stem: string): SessionId | null {
+  const match = /^telegram_(\d+)(?:_(.+))?$/.exec(stem);
+  if (!match) {
+    return null;
+  }
+  const chatId = match[1]!;
+  const suffix = match[2];
+  if (!suffix) {
+    return `telegram:${chatId}`;
+  }
+  return `telegram:${chatId}:${suffix}`;
+}
+
 /**
- * Lists on-disk TUI session files, newest first.
+ * Maps a sessions-dir filename stem back to a resumable TUI-visible session id.
+ * TUI-native and Telegram sessions are supported.
+ */
+function parseResumableSessionFilename(filename: string): SessionId | null {
+  if (
+    !filename.endsWith(".json") ||
+    filename === TUI_ACTIVE_THREAD_FILENAME ||
+    filename === TELEGRAM_ACTIVE_THREADS_FILENAME ||
+    filename === TELEGRAM_CHAT_PREFERENCES_FILENAME
+  ) {
+    return null;
+  }
+  const stem = filename.slice(0, -".json".length);
+  const tui = parseTuiSessionFilename(stem);
+  if (tui) {
+    return tui;
+  }
+  const telegram = parseTelegramSessionFilename(stem);
+  if (telegram) {
+    return telegram;
+  }
+  return null;
+}
+
+/**
+ * Lists on-disk sessions visible to TUI /sessions and /resume, newest first.
  */
 export async function listTuiSessions(): Promise<TuiSessionListEntry[]> {
   const dir = getSessionsDir();
@@ -42,7 +77,7 @@ export async function listTuiSessions(): Promise<TuiSessionListEntry[]> {
   const names = await readdir(dir);
   const entries: TuiSessionListEntry[] = [];
   for (const name of names) {
-    const sessionId = parseTuiSessionFilename(name);
+    const sessionId = parseResumableSessionFilename(name);
     if (!sessionId) {
       continue;
     }

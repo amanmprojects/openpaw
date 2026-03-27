@@ -9,6 +9,8 @@ const LEGACY_TUI_SESSION: SessionId = "tui:main";
 type TuiActiveThreadState = {
   /** When set, active session is `tui:main:${threadUuid}`; otherwise legacy `tui:main`. */
   threadUuid?: string;
+  /** Explicit non-TUI session id (for example `telegram:<chatId>[:threadUuid]`). */
+  sessionId?: SessionId;
 };
 
 function activeThreadPath(): string {
@@ -26,6 +28,10 @@ async function readState(): Promise<TuiActiveThreadState> {
     if (typeof parsed !== "object" || parsed === null) {
       return {};
     }
+    const sessionId = (parsed as TuiActiveThreadState).sessionId;
+    if (typeof sessionId === "string" && sessionId.length > 0) {
+      return { sessionId };
+    }
     const threadUuid = (parsed as TuiActiveThreadState).threadUuid;
     if (typeof threadUuid === "string" && threadUuid.length > 0) {
       return { threadUuid };
@@ -42,9 +48,11 @@ async function writeState(state: TuiActiveThreadState): Promise<void> {
     mkdirSync(dir, { recursive: true });
   }
   const payload =
-    state.threadUuid && state.threadUuid.length > 0
-      ? { threadUuid: state.threadUuid }
-      : {};
+    state.sessionId && state.sessionId.length > 0
+      ? { sessionId: state.sessionId }
+      : state.threadUuid && state.threadUuid.length > 0
+        ? { threadUuid: state.threadUuid }
+        : {};
   await Bun.write(activeThreadPath(), JSON.stringify(payload, null, 2));
 }
 
@@ -53,6 +61,9 @@ async function writeState(state: TuiActiveThreadState): Promise<void> {
  */
 export async function getTuiPersistenceSessionId(): Promise<SessionId> {
   const state = await readState();
+  if (state.sessionId) {
+    return state.sessionId;
+  }
   if (state.threadUuid) {
     return `tui:main:${state.threadUuid}`;
   }
@@ -76,13 +87,17 @@ export async function setActiveTuiSession(persistenceSessionId: SessionId): Prom
     await writeState({});
     return;
   }
+  if (!persistenceSessionId.trim()) {
+    throw new Error("Invalid session id");
+  }
   const prefix = `${LEGACY_TUI_SESSION}:`;
-  if (!persistenceSessionId.startsWith(prefix)) {
-    throw new Error("Session does not belong to this TUI channel");
+  if (persistenceSessionId.startsWith(prefix)) {
+    const uuid = persistenceSessionId.slice(prefix.length);
+    if (!uuid) {
+      throw new Error("Invalid thread id");
+    }
+    await writeState({ threadUuid: uuid });
+    return;
   }
-  const uuid = persistenceSessionId.slice(prefix.length);
-  if (!uuid) {
-    throw new Error("Invalid thread id");
-  }
-  await writeState({ threadUuid: uuid });
+  await writeState({ sessionId: persistenceSessionId });
 }
