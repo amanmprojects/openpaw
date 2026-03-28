@@ -18,7 +18,7 @@ OpenPaw is a Bun + TypeScript local agent runtime with:
 Global install (recommended for end users):
 
 ```bash
-npm i -g opaw
+npm i -g @amanm/openpaw
 ```
 
 After install you can run `openpaw` (and `opaw`) commands directly.
