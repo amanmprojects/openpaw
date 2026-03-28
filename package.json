@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "openpaw": "./bin/openpaw.cjs"
+    "openpaw": "bin/openpaw.cjs"
   },
   "scripts": {
     "openpaw": "bun run ./cli/openpaw.tsx",
