@@ -9,12 +9,16 @@ export interface ProviderConfig {
 }
 
 /**
- * Optional integrations for outbound channels (e.g. Telegram bot).
+ * Optional integrations for outbound channels (Telegram, WhatsApp, etc.).
  */
 export interface ChannelsConfig {
   /** When set, enables Telegram with this bot token. */
   telegram?: {
     botToken: string;
+  };
+  /** When `enabled` is true, starts the WhatsApp channel via Baileys (QR code pairing). */
+  whatsapp?: {
+    enabled: boolean;
   };
 }
 

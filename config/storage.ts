@@ -10,10 +10,18 @@ function toYaml(config: OpenPawConfig): string {
   lines.push(`  apiKey: "${config.provider.apiKey}"`);
   lines.push(`  model: "${config.provider.model}"`);
 
-  if (config.channels?.telegram) {
+  const hasTelegram = !!config.channels?.telegram;
+  const hasWhatsApp = !!config.channels?.whatsapp;
+  if (hasTelegram || hasWhatsApp) {
     lines.push("channels:");
-    lines.push("  telegram:");
-    lines.push(`    botToken: "${config.channels.telegram.botToken}"`);
+    if (hasTelegram) {
+      lines.push("  telegram:");
+      lines.push(`    botToken: "${config.channels!.telegram!.botToken}"`);
+    }
+    if (hasWhatsApp) {
+      lines.push("  whatsapp:");
+      lines.push(`    enabled: ${config.channels!.whatsapp!.enabled}`);
+    }
   }
 
   lines.push(`personality: "${config.personality}"`);
@@ -65,12 +73,16 @@ export async function loadConfig(): Promise<OpenPawConfig | null> {
       personality: personalityMatch[1] as Personality,
     };
 
-    if (botTokenMatch?.[1]) {
-      config.channels = {
-        telegram: {
-          botToken: botTokenMatch[1],
-        },
-      };
+    const whatsappEnabledMatch = content.match(/enabled:\s*(true|false)/);
+
+    if (botTokenMatch?.[1] || whatsappEnabledMatch?.[1]) {
+      config.channels = {};
+      if (botTokenMatch?.[1]) {
+        config.channels.telegram = { botToken: botTokenMatch[1] };
+      }
+      if (whatsappEnabledMatch?.[1] === "true") {
+        config.channels.whatsapp = { enabled: true };
+      }
     }
 
     return config;

@@ -8,6 +8,13 @@ const WORKSPACE_DIR = join(CONFIG_DIR, "workspace");
 const SESSIONS_DIR = join(WORKSPACE_DIR, "sessions");
 
 /**
+ * Absolute path to the OpenPaw config directory, typically `~/.openpaw`.
+ */
+export function getConfigDir(): string {
+  return CONFIG_DIR;
+}
+
+/**
  * Absolute path to the YAML config file, typically `~/.openpaw/config.yaml`.
  */
 export function getConfigPath(): string {
