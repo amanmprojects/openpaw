@@ -25,6 +25,7 @@ type Step =
   | "provider-apiKey"
   | "provider-model"
   | "telegram"
+  | "whatsapp"
   | "personality"
   | "confirm"
   | "start-chat";
@@ -33,6 +34,7 @@ type WizardState = {
   step: Step;
   provider: ProviderConfig;
   botToken: string;
+  whatsappEnabled: boolean;
   personality: Personality;
 };
 
@@ -40,12 +42,14 @@ type WizardAction =
   | { type: "SET_STEP"; step: Step }
   | { type: "PATCH_PROVIDER"; patch: Partial<ProviderConfig> }
   | { type: "SET_BOT_TOKEN"; value: string }
+  | { type: "SET_WHATSAPP_ENABLED"; value: boolean }
   | { type: "SET_PERSONALITY"; value: Personality };
 
 const initialWizardState: WizardState = {
   step: "provider-baseUrl",
   provider: { baseUrl: "", apiKey: "", model: "" },
   botToken: "",
+  whatsappEnabled: false,
   personality: "Assistant",
 };
 
@@ -57,6 +61,8 @@ function wizardReducer(state: WizardState, action: WizardAction): WizardState {
       return { ...state, provider: { ...state.provider, ...action.patch } };
     case "SET_BOT_TOKEN":
       return { ...state, botToken: action.value };
+    case "SET_WHATSAPP_ENABLED":
+      return { ...state, whatsappEnabled: action.value };
     case "SET_PERSONALITY":
       return { ...state, personality: action.value };
     default: {
@@ -72,12 +78,16 @@ function OnboardingWizard({
   onComplete: (startChat: boolean) => void;
 }) {
   const [state, dispatch] = useReducer(wizardReducer, initialWizardState);
-  const { step, provider, botToken, personality } = state;
+  const { step, provider, botToken, whatsappEnabled, personality } = state;
 
   const handleConfirm = async () => {
+    const channels: OpenPawConfig["channels"] = {};
+    if (botToken) channels.telegram = { botToken };
+    if (whatsappEnabled) channels.whatsapp = { enabled: true };
+    const hasChannels = Object.keys(channels).length > 0;
     const config: OpenPawConfig = {
       provider,
-      channels: botToken ? { telegram: { botToken } } : undefined,
+      channels: hasChannels ? channels : undefined,
       personality,
     };
     await saveConfig(config);
@@ -148,13 +158,35 @@ function OnboardingWizard({
           value={botToken}
           onChange={(v) => dispatch({ type: "SET_BOT_TOKEN", value: v })}
           onSubmit={() =>
-            dispatch({ type: "SET_STEP", step: "personality" })
+            dispatch({ type: "SET_STEP", step: "whatsapp" })
           }
           onBack={() =>
             dispatch({ type: "SET_STEP", step: "provider-model" })
           }
           placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
           password
+        />
+      );
+    case "whatsapp":
+      return (
+        <InputScreen
+          key={step}
+          title="Channel Configuration"
+          label="Enable WhatsApp via Baileys? (yes/no, leave blank to skip):"
+          value={whatsappEnabled ? "yes" : ""}
+          onChange={(v) =>
+            dispatch({
+              type: "SET_WHATSAPP_ENABLED",
+              value: v.trim().toLowerCase() === "yes",
+            })
+          }
+          onSubmit={() =>
+            dispatch({ type: "SET_STEP", step: "personality" })
+          }
+          onBack={() =>
+            dispatch({ type: "SET_STEP", step: "telegram" })
+          }
+          placeholder="yes / no"
         />
       );
     case "personality":
@@ -169,7 +201,7 @@ function OnboardingWizard({
             });
             dispatch({ type: "SET_STEP", step: "confirm" });
           }}
-          onBack={() => dispatch({ type: "SET_STEP", step: "telegram" })}
+          onBack={() => dispatch({ type: "SET_STEP", step: "whatsapp" })}
         />
       );
     case "confirm":
@@ -178,7 +210,10 @@ function OnboardingWizard({
           key={step}
           config={{
             provider,
-            channels: botToken ? { telegram: { botToken } } : undefined,
+            channels: {
+              ...(botToken ? { telegram: { botToken } } : {}),
+              ...(whatsappEnabled ? { whatsapp: { enabled: true } } : {}),
+            },
             personality,
           }}
           onConfirm={handleConfirm}
@@ -242,7 +277,7 @@ function App() {
 /**
  * Starts the interactive first-run onboarding flow.
  */
-export async function handleOnboard(_options: {}): Promise<void> {
+export async function handleOnboard(): Promise<void> {
   const renderer = await createSafeCliRenderer({
     exitOnCtrlC: true,
   });
