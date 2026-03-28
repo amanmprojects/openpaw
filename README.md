@@ -18,10 +18,11 @@ OpenPaw is a Bun + TypeScript local agent runtime with:
 Global install (recommended for end users):
 
 ```bash
-npm i -g openpaw
+npm i -g opaw
 ```
 
-The first `openpaw` run checks for Bun. If Bun is missing on macOS/Linux, OpenPaw prompts to install it automatically.
+After install you can run `openpaw` (and `opaw`) commands directly.
+The first run checks for Bun. If Bun is missing on macOS/Linux, OpenPaw prompts to install it automatically.
 
 Windows note: Bun auto-install is not performed yet. Install Bun manually from `https://bun.sh/docs/installation`.
 
