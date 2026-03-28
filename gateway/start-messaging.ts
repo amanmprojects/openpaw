@@ -1,6 +1,7 @@
 import { createGatewayContext, type OpenPawGatewayContext } from "./bootstrap";
 import type { ChannelAdapter } from "./channel-adapter";
 import { createTelegramChannelAdapter } from "./telegram/adapter";
+import { createWhatsAppChannelAdapter } from "./whatsapp/adapter";
 import { createHeartbeatScheduler } from "../scheduler/heartbeat-scheduler";
 import { startDashboardServer } from "../dashboard/server";
 
@@ -15,6 +16,11 @@ export function createMessagingChannelAdapters(ctx: OpenPawGatewayContext): Chan
     adapters.push(createTelegramChannelAdapter(ctx));
   }
 
+  const whatsappEnabled = ctx.config.channels?.whatsapp?.enabled;
+  if (whatsappEnabled) {
+    adapters.push(createWhatsAppChannelAdapter(ctx));
+  }
+
   return adapters;
 }
 
@@ -27,7 +33,7 @@ export async function runGatewayMessagingChannels(ctx: OpenPawGatewayContext): P
   const adapters = createMessagingChannelAdapters(ctx);
   if (adapters.length === 0) {
     throw new Error(
-      "No messaging channels configured. Add e.g. channels.telegram.botToken to ~/.openpaw/config.yaml",
+      "No messaging channels configured. Add channels.telegram.botToken or channels.whatsapp.enabled to ~/.openpaw/config.yaml",
     );
   }
 

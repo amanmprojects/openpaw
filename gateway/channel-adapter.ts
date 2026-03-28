@@ -1,5 +1,5 @@
 /**
- * A messaging channel (Telegram, future webhooks, etc.) that runs until stopped.
+ * A messaging channel (Telegram, WhatsApp, etc.) that runs until stopped.
  */
 export type ChannelAdapter = {
   readonly id: string;
