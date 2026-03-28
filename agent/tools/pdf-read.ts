@@ -19,48 +19,6 @@ import { resolve } from "node:path";
 const MAX_CHARS = 80_000; // ~20k tokens — enough for most papers
 const PDFTOTEXT_TIMEOUT_MS = 30_000;
 
-/** Run pdftotext and return the extracted text. */
-function runPdfToText(pdfPath: string): Promise<string> {
-  return new Promise((resolveP, rejectP) => {
-    // "-" as output means stdout
-    const proc = spawn("pdftotext", ["-layout", pdfPath, "-"], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let killed = false;
-
-    const timer = setTimeout(() => {
-      killed = true;
-      proc.kill("SIGTERM");
-    }, PDFTOTEXT_TIMEOUT_MS);
-
-    proc.stdout?.on("data", (d: Buffer) => {
-      stdout += d.toString("utf8");
-    });
-    proc.stderr?.on("data", (d: Buffer) => {
-      stderr += d.toString("utf8");
-    });
-    proc.on("error", (err) => {
-      clearTimeout(timer);
-      rejectP(err);
-    });
-    proc.on("close", (code) => {
-      clearTimeout(timer);
-      if (killed) {
-        rejectP(new Error("pdftotext timed out"));
-        return;
-      }
-      if (code !== 0) {
-        rejectP(new Error(`pdftotext exited with code ${code}: ${stderr.trim()}`));
-        return;
-      }
-      resolveP(stdout);
-    });
-  });
-}
-
 /**
  * Resolves a user-provided path: if it starts with `/` treat it as absolute,
  * otherwise resolve relative to `workspaceRoot`.

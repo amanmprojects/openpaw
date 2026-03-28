@@ -23,7 +23,7 @@ import {
   resolveApproval,
   type ApprovalRequest,
 } from "../approval-gate";
-import { createTokenBudget, formatBudgetReport } from "../../agent/token-budget";
+import { formatBudgetReport } from "../../agent/token-budget";
 import { downloadPhotoAsBase64, transcribeVoiceMessage } from "./media-handler";
 
 /** Callback data prefix for inline approval buttons. */
@@ -64,11 +64,8 @@ function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
   const { runtime } = ctx;
   const runNext = createTelegramMessageQueue();
 
-  // Initialise budget reporter (reads from config; 0 = unlimited).
-  const budget = createTokenBudget({
-    dailyLimitTokens: ctx.config.budget?.dailyLimitTokens ?? 0,
-    fallbackModel: ctx.config.budget?.fallbackModel,
-  });
+  // Use the shared budget from the agent runtime (record() is called automatically per LLM step).
+  const budget = runtime.budget;
 
   // Handle inline button callbacks for approval requests.
   bot.on("callback_query:data", async (grammyCtx) => {
@@ -294,7 +291,7 @@ function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
         const photo = await downloadPhotoAsBase64(bot, photoSizes);
         const userText = photo
           ? `[photo sent — base64 image attached]${caption ? `\nCaption: ${caption}` : ""}\n\nImage data: ${photo.dataUri.slice(0, 100)}…`
-          : `[photo sent — download failed]${caption ? `\nCaption: ${caption}` : ""}`;;
+          : `[photo sent — download failed]${caption ? `\nCaption: ${caption}` : ""}`;
 
         // For vision-capable models, include the image as a note in the text.
         // A full multimodal implementation would pass image parts directly via the AI SDK.

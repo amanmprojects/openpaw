@@ -22,6 +22,7 @@
     "@ai-sdk/openai-compatible": "^2.0.37",
     "@opentui/core": "^0.1.90",
     "@opentui/react": "^0.1.90",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "ai": "^6.0.138",
     "commander": "^14.0.3",
     "grammy": "^1.41.1",

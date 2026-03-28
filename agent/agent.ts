@@ -17,6 +17,7 @@ import { upiParseTool, upiSummaryTool, academicCalendarTool } from "./tools/indi
 import { createMemoryTools } from "./memory/memory-tools";
 import { openMemoryDb } from "./memory/memory-store";
 import { getMemoryDbPath } from "../config/paths";
+import { createTokenBudget, type TokenBudget } from "./token-budget";
 
 function createTools(workspacePath: string, config: OpenPawConfig) {
   const db = openMemoryDb(getMemoryDbPath());
@@ -58,6 +59,8 @@ export type AgentRuntime = {
   config: OpenPawConfig;
   workspacePath: string;
   agent: OpenPawAgent;
+  /** Shared token budget instance — record() is called automatically after each LLM step. */
+  budget: TokenBudget;
   runTurn: (params: RunTurnParams) => Promise<{ text: string }>;
 };
 
@@ -66,17 +69,23 @@ export function createAgentRuntime(
   workspacePath: string,
 ): AgentRuntime {
   const agent = createOpenPawAgent(config, workspacePath);
+  const budget = createTokenBudget({
+    dailyLimitTokens: config.budget?.dailyLimitTokens ?? 0,
+    fallbackModel: config.budget?.fallbackModel,
+  });
 
   return {
     config,
     workspacePath,
     agent,
-    runTurn: async (params) => runTurnWithAgent(agent, params),
+    budget,
+    runTurn: async (params) => runTurnWithAgent(agent, budget, params),
   };
 }
 
 async function runTurnWithAgent(
   agent: OpenPawAgent,
+  budget: TokenBudget,
   { sessionId, userText, onTextDelta, onReasoningDelta, onToolStatus }: RunTurnParams,
 ): Promise<{ text: string }> {
   const prior = await loadSessionMessages(sessionId, agent.tools);
@@ -98,6 +107,13 @@ async function runTurnWithAgent(
   const stream = await createAgentUIStream({
     agent,
     uiMessages,
+    onStepFinish: (stepResult) => {
+      const input = stepResult.usage.inputTokens ?? 0;
+      const output = stepResult.usage.outputTokens ?? 0;
+      if (input > 0 || output > 0) {
+        budget.record(input, output);
+      }
+    },
     onFinish: async ({ messages }) => {
       await saveSessionMessages(sessionId, messages);
     },

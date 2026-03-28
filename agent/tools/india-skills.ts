@@ -121,8 +121,9 @@ function parseDateString(raw: string): Date | null {
 function daysUntil(d: Date): number {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
-  d.setHours(0, 0, 0, 0);
-  return Math.round((d.getTime() - now.getTime()) / 86_400_000);
+  const target = new Date(d.getTime());
+  target.setHours(0, 0, 0, 0);
+  return Math.round((target.getTime() - now.getTime()) / 86_400_000);
 }
 
 // ─── Tool factories ───────────────────────────────────────────────────────────
