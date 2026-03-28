@@ -8,6 +8,7 @@ export const RESERVED_SLASH_COMMANDS = new Set([
   "/resume",
   "/reasoning",
   "/tool_calls",
+  "/budget",
 ]);
 
 /**

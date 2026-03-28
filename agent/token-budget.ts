@@ -179,6 +179,7 @@ export function formatBudgetReport(report: BudgetReport): string {
 }
 
 function buildBar(percent: number): string {
-  const filled = Math.round(percent / 10);
+  const clamped = Math.max(0, Math.min(100, percent));
+  const filled = Math.round(clamped / 10);
   return "█".repeat(filled) + "░".repeat(10 - filled);
 }
