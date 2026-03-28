@@ -42,7 +42,7 @@ export function formatReasoningPhaseHtml(
     return "";
   }
   const inner = truncateInner(escapeTelegramHtml(trimmed), 200);
-  const block = `<b>Reasoning</b>\n<blockquote expandable>${inner}</blockquote>`;
+  const block = `<blockquote expandable>${inner}</blockquote>`;
   return showCursor ? `${block}${STREAMING_CURSOR_PLAIN}` : block;
 }
 

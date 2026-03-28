@@ -3,16 +3,29 @@
 OpenPaw is a Bun + TypeScript local agent runtime with:
 
 - a terminal chat UI (`openpaw tui`) built with OpenTUI
-- a gateway process (`openpaw gateway start`) for messaging channels (Telegram today)
+- a gateway process (`openpaw gateway dev` in foreground, `openpaw gateway start` in background) for messaging channels (Telegram today)
 - persisted sessions and workspace instructions under `~/.openpaw`
 
 ## Prerequisites
 
-- Bun `>=1.3` (tested with `1.3.11`)
+- Node.js `>=18.18` (for npm-installed launcher)
+- Bun `>=1.3` runtime (tested with `1.3.11`)
 - A model provider compatible with OpenAI-style chat APIs
 - Optional: Telegram bot token if you want Telegram channel support
 
 ## Install
+
+Global install (recommended for end users):
+
+```bash
+npm i -g openpaw
+```
+
+The first `openpaw` run checks for Bun. If Bun is missing on macOS/Linux, OpenPaw prompts to install it automatically.
+
+Windows note: Bun auto-install is not performed yet. Install Bun manually from `https://bun.sh/docs/installation`.
+
+From-source install (development):
 
 ```bash
 bun install
@@ -21,24 +34,32 @@ bun install
 ## CLI Usage
 
 ```bash
-bun run openpaw --help
+openpaw --help
 ```
 
 Main commands:
 
-- `bun run openpaw onboard`  
+- `openpaw onboard`  
   Interactive onboarding (provider URL, API key, model, optional Telegram token, personality)
-- `bun run openpaw tui`  
+- `openpaw tui`  
   Start local terminal chat UI
-- `bun run openpaw gateway start`  
-  Start all configured messaging adapters (currently Telegram when token is configured)
+- `openpaw gateway dev`  
+  Start configured messaging adapters in foreground mode (blocking)
+- `openpaw gateway start`  
+  Start gateway daemon in background mode
+- `openpaw gateway status`  
+  Show background gateway status and log paths
+- `openpaw gateway stop`  
+  Stop background gateway daemon
+- `openpaw gateway logs [-n 80] [--stderr]`  
+  Show recent daemon logs
 
 ## First-Time Setup
 
 Run onboarding once:
 
 ```bash
-bun run openpaw onboard
+openpaw onboard
 ```
 
 This creates:
@@ -116,4 +137,8 @@ Execution flow:
 
 ## Notes
 
-- `package.json` currently still includes scaffold `dev` script pointing at `src/index.tsx`; use `bun run openpaw ...` commands above for normal operation.
+- Background gateway state files:
+  - PID: `~/.openpaw/gateway/gateway.pid`
+  - stdout log: `~/.openpaw/gateway/gateway.log`
+  - stderr log: `~/.openpaw/gateway/gateway.err.log`
+- For development from source, you can still run: `bun run openpaw ...`
