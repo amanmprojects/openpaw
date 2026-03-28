@@ -1,6 +1,6 @@
 {
   "name": "@amanm/openpaw",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local Bun + TypeScript agent runtime with TUI and messaging gateway adapters.",
   "license": "MIT",
   "type": "module",
