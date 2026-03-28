@@ -1,10 +1,10 @@
 {
-  "name": "@amanm/openpaw",
+  "name": "openpaw",
   "version": "0.1.2",
   "description": "Local Bun + TypeScript agent runtime with TUI and messaging gateway adapters.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/amanmprojects/openpaw"
+    "url": "git+https://github.com/amanmprojects/openpaw.git"
   },
   "homepage": "https://github.com/amanmprojects/openpaw",
   "bugs": {
