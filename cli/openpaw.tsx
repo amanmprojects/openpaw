@@ -4,6 +4,8 @@ import { startGateway } from "../gateway";
 import { runOpenPawTui } from "./tui";
 import { handleOnboard } from "./onboard";
 import { handleReset } from "./reset";
+import { handleUpdate } from "./update";
+import { getOpenPawVersion } from "./version";
 import {
   getGatewayDaemonStatus,
   readGatewayDaemonLog,
@@ -11,7 +13,7 @@ import {
   stopGatewayDaemon,
 } from "../gateway/daemon-manager";
 
-program.version("0.1.0").description("OpenPaw");
+program.version(getOpenPawVersion()).description("OpenPaw");
 
 program
   .command("reset")
@@ -31,6 +33,18 @@ program
   .command("onboard")
   .description("Go through the onboarding setup")
   .action(handleOnboard);
+
+program
+  .command("update")
+  .description("Update OpenPaw to the latest published release")
+  .action(() => {
+    try {
+      handleUpdate();
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : e);
+      process.exitCode = 1;
+    }
+  });
 
 const gateway = program.command("gateway").description("Run messaging channel adapters (shared agent runtime)");
 

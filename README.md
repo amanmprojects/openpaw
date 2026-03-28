@@ -42,6 +42,8 @@ Main commands:
 
 - `openpaw onboard`  
   Interactive onboarding (provider URL, API key, model, optional Telegram token, personality)
+- `openpaw update`  
+  Update to the latest published version (uses Bun or npm based on your global install)
 - `openpaw tui`  
   Start local terminal chat UI
 - `openpaw gateway dev`  
