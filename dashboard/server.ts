@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { existsSync, readdirSync, statSync, readFileSync, writeFileSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { getWorkspaceRoot, getSessionsDir, getMemoryDbPath } from "../config/paths";
+import { loadConfig } from "../config/storage";
 import { openMemoryDb, getRecentMemories } from "../agent/memory/memory-store";
 import { loadState } from "../agent/token-budget";
 
@@ -60,12 +61,12 @@ function countSessionMessages(filePath: string): number {
   }
 }
 
-function handleApiInfo(): Response {
+async function handleApiInfo(): Promise<Response> {
   const sessionsDir = getSessionsDir();
   let sessionCount = 0;
   if (existsSync(sessionsDir)) {
     sessionCount = readdirSync(sessionsDir)
-      .filter((f) => f.endsWith(".json") && !f.startsWith("token-budget"))
+      .filter((f) => f.endsWith(".json") && !f.startsWith("token-budget") && !f.startsWith("telegram-") && !f.startsWith("whatsapp-"))
       .length;
   }
 
@@ -80,7 +81,14 @@ function handleApiInfo(): Response {
     } catch {}
   }
 
-  return json({ sessionCount, memoryCount, tools: TOOL_NAMES });
+  const channels: string[] = [];
+  try {
+    const cfg = await loadConfig();
+    if (cfg?.channels?.telegram?.botToken) channels.push("telegram");
+    if (cfg?.channels?.whatsapp?.enabled) channels.push("whatsapp");
+  } catch {}
+
+  return json({ sessionCount, memoryCount, tools: TOOL_NAMES, channels });
 }
 
 function handleApiSessions(): Response {
@@ -88,7 +96,7 @@ function handleApiSessions(): Response {
   if (!existsSync(dir)) return json({ sessions: [] });
 
   const sessions = readdirSync(dir)
-    .filter((f) => f.endsWith(".json") && !f.startsWith("token-budget") && !f.startsWith("telegram-"))
+    .filter((f) => f.endsWith(".json") && !f.startsWith("token-budget") && !f.startsWith("telegram-") && !f.startsWith("whatsapp-"))
     .map((f) => {
       const path = join(dir, f);
       const stat = statSync(path);
@@ -179,7 +187,7 @@ export function startDashboardServer(): ReturnType<typeof Bun.serve> {
             headers: cors({ "Content-Type": "text/html; charset=utf-8" }),
           });
         }
-        if (path === "/api/info") return handleApiInfo();
+        if (path === "/api/info") return await handleApiInfo();
         if (path === "/api/sessions") return handleApiSessions();
         if (path === "/api/memory") return handleApiMemory(url);
         if (path === "/api/file") {
