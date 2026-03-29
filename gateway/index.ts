@@ -4,6 +4,7 @@ export {
   getGatewayDaemonPaths,
   getGatewayDaemonStatus,
   readGatewayDaemonLog,
+  restartGatewayDaemon,
   startGatewayDaemon,
   stopGatewayDaemon,
 } from "./daemon-manager";

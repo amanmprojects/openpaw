@@ -36,6 +36,12 @@ export type StopGatewayDaemonResult = {
   paths: GatewayDaemonPaths;
 };
 
+/** Result payload from {@link restartGatewayDaemon}. */
+export type RestartGatewayDaemonResult = {
+  stopped: StopGatewayDaemonResult;
+  started: StartGatewayDaemonResult;
+};
+
 /** CLI entrypoint path for spawning `openpaw gateway dev` in a detached process. */
 const OPENPAW_CLI_ENTRY = fileURLToPath(new URL("../cli/openpaw.tsx", import.meta.url));
 
@@ -172,6 +178,15 @@ export function stopGatewayDaemon(): StopGatewayDaemonResult {
 
   cleanupStalePid(paths);
   return { status: "stopped", pid: status.pid, paths };
+}
+
+/**
+ * Restarts detached gateway daemon by stopping any running process, then starting a new one.
+ */
+export function restartGatewayDaemon(): RestartGatewayDaemonResult {
+  const stopped = stopGatewayDaemon();
+  const started = startGatewayDaemon();
+  return { stopped, started };
 }
 
 /**

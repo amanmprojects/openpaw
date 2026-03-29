@@ -54,6 +54,8 @@ Main commands:
   Show background gateway status and log paths
 - `openpaw gateway stop`  
   Stop background gateway daemon
+- `openpaw gateway restart`  
+  Restart background gateway daemon
 - `openpaw gateway logs [-n 80] [--stderr]`  
   Show recent daemon logs
 

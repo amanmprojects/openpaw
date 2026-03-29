@@ -9,6 +9,7 @@ import { getOpenPawVersion } from "./version";
 import {
   getGatewayDaemonStatus,
   readGatewayDaemonLog,
+  restartGatewayDaemon,
   startGatewayDaemon,
   stopGatewayDaemon,
 } from "../gateway/daemon-manager";
@@ -92,6 +93,25 @@ gateway
         return;
       }
       console.log(`Stopped OpenPaw gateway daemon (pid ${result.pid}).`);
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : e);
+      process.exitCode = 1;
+    }
+  });
+
+gateway
+  .command("restart")
+  .description("Restart gateway daemon")
+  .action(() => {
+    try {
+      const result = restartGatewayDaemon();
+      const priorPid =
+        result.stopped.status === "stopped" && result.stopped.pid !== null
+          ? ` (previous pid ${result.stopped.pid})`
+          : "";
+      console.log(
+        `Restarted OpenPaw gateway daemon${priorPid}; now running as pid ${result.started.pid}. Logs: ${result.started.paths.logFile}`,
+      );
     } catch (e) {
       console.error(e instanceof Error ? e.message : e);
       process.exitCode = 1;
