@@ -118,7 +118,7 @@ function ChatMessageBlock({
 
     return (
       <box flexDirection="column" gap={0} marginBottom={1}>
-        <text fg={ONBOARD.roleLabel} attributes={TextAttributes.BOLD} selectable>
+        <text fg={ONBOARD.roleLabel} attributes={TextAttributes.BOLD} selectable marginBottom={1}>
           <strong>Assistant</strong>
         </text>
         {nonEmpty.length === 0 ? (
