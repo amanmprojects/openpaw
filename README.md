@@ -76,7 +76,8 @@ This creates:
   - `~/.openpaw/workspace/SOUL.md`
   - `~/.openpaw/workspace/USER.md` (legacy; prefer the `memory` tool for profile facts)
   - `~/.openpaw/workspace/memories/` (curated `MEMORY.md` / `USER.md` via the `memory` tool)
-  - `~/.openpaw/workspace/sessions/*`
+  - `~/.openpaw/workspace/sessions/<session-id>/session.json`
+  - `~/.openpaw/workspace/sessions/<session-id>/turns/*`
 
 ## Configuration
 
@@ -92,7 +93,7 @@ Example:
 
 ```yaml
 provider:
-  baseUrl: "https://api.openai.com/v1"
+  baseUrl: "https://openai-litellm.duckdns.org/v1"
   apiKey: "sk-..."
   model: "gpt-4o"
 channels:
@@ -103,7 +104,7 @@ personality: "Assistant"
 
 ## Sessions and Commands
 
-Sessions are persisted as JSON files under:
+Sessions are persisted under:
 
 - `~/.openpaw/workspace/sessions`
 

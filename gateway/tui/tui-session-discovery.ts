@@ -52,6 +52,18 @@ function parseTelegramSessionFilename(stem: string): SessionId | null {
  * Maps a sessions-dir filename stem back to a resumable TUI-visible session id.
  * TUI-native and Telegram sessions are supported.
  */
+function parseResumableSessionName(name: string): SessionId | null {
+  const tui = parseTuiSessionFilename(name);
+  if (tui) {
+    return tui;
+  }
+  const telegram = parseTelegramSessionFilename(name);
+  if (telegram) {
+    return telegram;
+  }
+  return null;
+}
+
 function parseResumableSessionFilename(filename: string): SessionId | null {
   if (
     !filename.endsWith(".json") ||
@@ -61,16 +73,7 @@ function parseResumableSessionFilename(filename: string): SessionId | null {
   ) {
     return null;
   }
-  const stem = filename.slice(0, -".json".length);
-  const tui = parseTuiSessionFilename(stem);
-  if (tui) {
-    return tui;
-  }
-  const telegram = parseTelegramSessionFilename(stem);
-  if (telegram) {
-    return telegram;
-  }
-  return null;
+  return parseResumableSessionName(filename.slice(0, -".json".length));
 }
 
 /**
@@ -81,29 +84,39 @@ export async function listTuiSessions(): Promise<TuiSessionListEntry[]> {
   if (!existsSync(dir)) {
     return [];
   }
-  const names = await readdir(dir);
-  const entries: TuiSessionListEntry[] = [];
+  const names = await readdir(dir, { withFileTypes: true });
+  const entriesBySessionId = new Map<SessionId, TuiSessionListEntry>();
   for (const name of names) {
-    const sessionId = parseResumableSessionFilename(name);
+    const sessionId = name.isDirectory()
+      ? parseResumableSessionName(name.name)
+      : parseResumableSessionFilename(name.name);
     if (!sessionId) {
       continue;
     }
-    const path = join(dir, name);
+    const path = name.isDirectory() ? join(dir, name.name, "session.json") : join(dir, name.name);
+    if (!existsSync(path)) {
+      continue;
+    }
     try {
       const st = await stat(path);
       const raw = await Bun.file(path).text();
       const metadata = parseSessionMetadataFromContent(sessionId, raw);
-      entries.push({
+      const nextEntry = {
         sessionId,
         mtimeMs: st.mtimeMs,
         title: metadata?.title ?? null,
         pinned: metadata?.pinned ?? false,
         updatedAt: metadata?.updatedAt ?? null,
-      });
+      };
+      const prior = entriesBySessionId.get(sessionId);
+      if (!prior || nextEntry.mtimeMs > prior.mtimeMs) {
+        entriesBySessionId.set(sessionId, nextEntry);
+      }
     } catch {
       continue;
     }
   }
+  const entries = [...entriesBySessionId.values()];
   entries.sort((a, b) => {
     if (a.pinned !== b.pinned) {
       return a.pinned ? -1 : 1;

@@ -22,11 +22,15 @@ function listFiles(dir: string, acc: string[] = []): string[] {
       listFiles(full, acc);
       continue;
     }
-    if ([...SOURCE_EXTENSIONS].some((ext) => full.endsWith(ext))) {
+    if (matchesSourceFile(full)) {
       acc.push(full);
     }
   }
   return acc;
+}
+
+function matchesSourceFile(path: string): boolean {
+  return [...SOURCE_EXTENSIONS].some((ext) => path.endsWith(ext));
 }
 
 function changedFiles(): string[] | null {
@@ -62,6 +66,9 @@ const candidateFiles = changedFiles() ?? listFiles(ROOT);
 
 for (const file of candidateFiles) {
   if (!statSync(file, { throwIfNoEntry: false })?.isFile()) {
+    continue;
+  }
+  if (!matchesSourceFile(file)) {
     continue;
   }
   const rel = file.slice(ROOT.length + 1);

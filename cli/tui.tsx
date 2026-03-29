@@ -19,7 +19,7 @@ export async function runOpenPawTui(): Promise<void> {
   const stored = await loadSessionMessages(sessionId, ctx.runtime.agent.tools);
   const initialLines = uiMessagesToChatLines(stored);
   const renderer = await createCliRenderer({
-    exitOnCtrlC: true,
+    exitOnCtrlC: false,
   });
   createRoot(renderer).render(
     <ChatApp

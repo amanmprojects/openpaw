@@ -17,13 +17,16 @@ export { createLanguageModel } from "./model";
 export { buildToolExecutionPolicy, classifyToolRisk } from "./tool-policy";
 export {
   deriveSessionTitle,
+  getLegacySessionFilePath,
+  getSessionDirectoryPath,
   loadSessionMessages,
   loadSessionMetadata,
   loadSessionFile,
   saveSessionMessages,
+  getSessionTurnsDir,
   updateSessionMetadata,
   getSessionFilePath,
-  sessionIdToFilename,
+  sessionIdToDirname,
 } from "./session-store";
 export type { SessionFileV1, SessionFileV2, SessionMetadata } from "./session-store";
 export { saveTurnRecord } from "./turn-record-store";

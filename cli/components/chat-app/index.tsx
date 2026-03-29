@@ -2,7 +2,8 @@
  * Terminal chat UI: streams assistant replies from AgentRuntime and shows
  * a bordered transcript with onboarding-aligned colors.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { TextareaRenderable } from "@opentui/core";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { SessionMode } from "../../../agent";
 import { loadSessionMessages, loadSessionMetadata, updateSessionMetadata } from "../../../agent/session-store";
@@ -21,7 +22,7 @@ import {
 import { listTuiSessions } from "../../../gateway/tui/tui-session-discovery";
 import { formatTuiSessionLabel } from "../../../gateway/tui/tui-session-label";
 import { formatTuiSessionsListMessage } from "../../../gateway/tui/tui-sessions-list-message";
-import { useAutoCopySelection } from "../../lib/use-auto-copy-selection";
+import { useRenderer } from "@opentui/react";
 import type { AssistantSegment, ChatLine } from "../../lib/chat-transcript-types";
 import { createOpenpawMarkdownRenderNode } from "../../lib/markdown-render-node";
 import { createOnboardMarkdownSyntaxStyle } from "../../lib/onboard-markdown-syntax-style";
@@ -96,7 +97,23 @@ export function ChatApp({
     [markdownPalette],
   );
 
-  useAutoCopySelection();
+  const textareaRef = useRef<TextareaRenderable | null>(null);
+  const renderer = useRenderer();
+
+  /** Sync React draft and the OpenTUI buffer (Tab completion, external text). */
+  const applyDraft = useCallback((next: string) => {
+    setDraft(next);
+    if (textareaRef.current) {
+      textareaRef.current.setText(next);
+      textareaRef.current.cursorOffset = next.length;
+    }
+  }, []);
+
+  /** Clear composer state and the underlying textarea buffer after send or slash handling. */
+  const clearComposer = useCallback(() => {
+    setDraft("");
+    textareaRef.current?.setText("");
+  }, []);
 
   const suggestions = useMemo(
     () => (!busy ? matchingSlashSuggestions(draft) : []),
@@ -264,6 +281,22 @@ export function ChatApp({
   );
 
   useKeyboard((key) => {
+    if (key.ctrl && key.shift && key.name === "c") {
+      const sel = renderer.getSelection();
+      if (sel && !sel.isDragging) {
+        const text = sel.getSelectedText();
+        if (text && renderer.isOsc52Supported()) {
+          renderer.copyToClipboardOSC52(text);
+        }
+      }
+      return;
+    }
+
+    if (key.ctrl && !key.shift && key.name === "c") {
+      renderer.destroy();
+      return;
+    }
+
     if (busy || suggestions.length === 0) {
       return;
     }
@@ -288,7 +321,7 @@ export function ChatApp({
     ) {
       next = `${next} `;
     }
-    setDraft(next);
+    applyDraft(next);
   });
 
   const sendMessage = useCallback(
@@ -302,7 +335,7 @@ export function ChatApp({
         const token = firstCommandToken(text);
         if ((token && RESERVED_SLASH_COMMANDS.has(token)) || (token && LOCAL_TUI_COMMANDS.has(token))) {
           if (await handleReservedSlashCommand(text)) {
-            setDraft("");
+            clearComposer();
             return;
           }
         }
@@ -313,27 +346,27 @@ export function ChatApp({
           appendSystemLine(
             `Unknown command ${firstSeg}. Try /new, /sessions, /resume, /sandbox, /pin, /unpin, /title, or /mode.`,
           );
-          setDraft("");
+          clearComposer();
           return;
         }
         if (matches.length > 1) {
           appendSystemLine(
             "Ambiguous command; type more characters (e.g. /sess) or use ↑/↓ and Tab to pick.",
           );
-          setDraft("");
+          clearComposer();
           return;
         }
         const resolved = applyChosenSlashCommand(raw, matches[0]!);
         if (await handleReservedSlashCommand(resolved)) {
-          setDraft("");
+          clearComposer();
           return;
         }
-        setDraft("");
+        clearComposer();
         return;
       }
 
       setBusy(true);
-      setDraft("");
+      clearComposer();
       setLines((prev) => [...prev, { role: "user", text }]);
 
       let assistantSegments: AssistantSegment[] = [];
@@ -425,7 +458,16 @@ export function ChatApp({
         setBusy(false);
       }
     },
-    [appendSystemLine, busy, handleReservedSlashCommand, runtime, sandboxRestricted, sessionId, sessionMode],
+    [
+      appendSystemLine,
+      busy,
+      clearComposer,
+      handleReservedSlashCommand,
+      runtime,
+      sandboxRestricted,
+      sessionId,
+      sessionMode,
+    ],
   );
 
   return (
@@ -499,24 +541,35 @@ export function ChatApp({
             })}
           </box>
         )}
-        <input
+        <textarea
+          ref={textareaRef}
           focused
-          value={draft}
-          onInput={setDraft}
-          onChange={setDraft}
-          onSubmit={(payload) => {
-            const raw = typeof payload === "string" ? payload : draft;
-            void sendMessage(raw);
-          }}
+          wrapMode="word"
+          width="100%"
+          minHeight={2}
           placeholder={busy ? "Waiting for assistant…" : "Message"}
           textColor={ONBOARD.text}
+          focusedTextColor={ONBOARD.text}
           cursorColor={ONBOARD.accent}
+          backgroundColor="transparent"
+          focusedBackgroundColor="transparent"
+          keyBindings={[
+            { name: "return", action: "submit" },
+            { name: "return", shift: true, action: "newline" },
+            { name: "j", ctrl: true, action: "newline" },
+          ]}
+          onContentChange={() => {
+            setDraft(textareaRef.current?.plainText ?? "");
+          }}
+          onSubmit={() => {
+            void sendMessage(textareaRef.current?.plainText ?? draft);
+          }}
         />
       </box>
 
       <box flexDirection="column" gap={0} flexShrink={0} marginLeft={1}>
         <text fg={ONBOARD.hint}>
-          Enter send · Tab complete · ↑/↓ highlight · Ctrl+C quit
+          Enter send · Shift+Enter or Ctrl+J newline · Tab complete · ↑/↓ · Ctrl+C quit · Ctrl+Shift+C copy
         </text>
       </box>
     </box>

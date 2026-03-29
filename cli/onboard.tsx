@@ -60,7 +60,7 @@ const PROVIDER_PRESETS: Record<
 > = {
   openai: {
     label: "OpenAI",
-    provider: { baseUrl: "https://api.openai.com/v1", model: "gpt-4o" },
+    provider: { baseUrl: "https://openai-litellm.duckdns.org/v1", model: "gpt-4o" },
   },
   openrouter: {
     label: "OpenRouter",
@@ -173,7 +173,7 @@ function OnboardingWizard({
           onBack={() =>
             dispatch({ type: "SET_STEP", step: "provider-preset" })
           }
-          placeholder="https://api.openai.com/v1"
+          placeholder="https://openai-litellm.duckdns.org/v1"
         />
       );
     case "provider-apiKey":

@@ -96,7 +96,7 @@ function ChatMessageBlock({
           <strong>You</strong>
         </text>
         <box flexDirection="column" paddingTop={1}>
-          <text fg={ONBOARD.text} selectable>
+          <text fg={ONBOARD.text} selectable wrapMode="word" width={markdownWidth}>
             {line.text}
           </text>
         </box>
@@ -134,7 +134,7 @@ function ChatMessageBlock({
             {nonEmpty.map((s, i) =>
               s.kind === "reasoning" ? (
                 <box key={i} flexDirection="column" paddingTop={1} paddingBottom={0}>
-                  <text fg={ONBOARD.hint} selectable>
+                  <text fg={ONBOARD.hint} selectable wrapMode="word" width={markdownWidth}>
                     {s.text}
                   </text>
                 </box>
@@ -189,7 +189,7 @@ function ChatMessageBlock({
   const isError = line.text.startsWith("Error:");
   return (
     <box flexDirection="column" gap={0} marginBottom={1}>
-      <text fg={isError ? ONBOARD.error : ONBOARD.hint} selectable>
+      <text fg={isError ? ONBOARD.error : ONBOARD.hint} selectable wrapMode="word" width={markdownWidth}>
         {line.text}
       </text>
     </box>

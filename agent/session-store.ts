@@ -1,8 +1,7 @@
 /**
  * Session persistence and metadata helpers for OpenPaw chat history.
  */
-import { existsSync } from "node:fs";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolSet, UIMessage } from "ai";
 import { safeValidateUIMessages } from "ai";
@@ -167,15 +166,47 @@ export function parseSessionMetadataFromContent(
 }
 
 /**
- * Maps a session id to a single filesystem-safe filename (no path separators).
+ * Maps a session id to a single filesystem-safe directory name (no path separators).
  */
-export function sessionIdToFilename(sessionId: SessionId): string {
-  const safe = sessionId.replace(/[^a-zA-Z0-9._-]+/g, "_");
-  return `${safe}.json`;
+export function sessionIdToDirname(sessionId: SessionId): string {
+  return sessionId.replace(/[^a-zA-Z0-9._-]+/g, "_");
 }
 
+/**
+ * Legacy flat session file path used before per-session directories.
+ */
+export function getLegacySessionFilePath(sessionId: SessionId): string {
+  return join(getSessionsDir(), `${sessionIdToDirname(sessionId)}.json`);
+}
+
+/**
+ * Session root directory under `workspace/sessions/<session-id>/`.
+ */
+export function getSessionDirectoryPath(sessionId: SessionId): string {
+  return join(getSessionsDir(), sessionIdToDirname(sessionId));
+}
+
+/**
+ * Session manifest file path under `workspace/sessions/<session-id>/session.json`.
+ */
 export function getSessionFilePath(sessionId: SessionId): string {
-  return join(getSessionsDir(), sessionIdToFilename(sessionId));
+  return join(getSessionDirectoryPath(sessionId), "session.json");
+}
+
+/**
+ * Per-session turn records directory under `workspace/sessions/<session-id>/turns/`.
+ */
+export function getSessionTurnsDir(sessionId: SessionId): string {
+  return join(getSessionDirectoryPath(sessionId), "turns");
+}
+
+function existingSessionFilePath(sessionId: SessionId): string | null {
+  const nextPath = getSessionFilePath(sessionId);
+  if (existsSync(nextPath)) {
+    return nextPath;
+  }
+  const legacyPath = getLegacySessionFilePath(sessionId);
+  return existsSync(legacyPath) ? legacyPath : null;
 }
 
 /**
@@ -185,8 +216,8 @@ export async function loadSessionFile(
   sessionId: SessionId,
   tools: ToolSet,
 ): Promise<SessionFileV2 | null> {
-  const path = getSessionFilePath(sessionId);
-  if (!existsSync(path)) {
+  const path = existingSessionFilePath(sessionId);
+  if (!path) {
     return null;
   }
   try {
@@ -235,12 +266,13 @@ export async function saveSessionMessages(
   messages: UIMessage[],
   options?: SaveSessionOptions,
 ): Promise<void> {
-  const dir = getSessionsDir();
+  const dir = getSessionDirectoryPath(sessionId);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
-  const existingRaw = existsSync(getSessionFilePath(sessionId))
-    ? await Bun.file(getSessionFilePath(sessionId)).text()
+  const existingPath = existingSessionFilePath(sessionId);
+  const existingRaw = existingPath
+    ? await Bun.file(existingPath).text()
     : null;
   const existing = existingRaw ? parseSessionFile(existingRaw) : null;
   const payload: SessionFileV2 = {

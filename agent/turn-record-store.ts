@@ -1,6 +1,9 @@
+/**
+ * Per-session turn record persistence for OpenPaw observability.
+ */
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { getTurnsDir } from "../config/paths";
+import { getSessionTurnsDir } from "./session-store";
 import type { OpenPawSurface } from "./types";
 
 export type TurnRecord = {
@@ -18,10 +21,10 @@ export type TurnRecord = {
 };
 
 /**
- * Persists one turn record under `workspace/turns`.
+ * Persists one turn record under `workspace/sessions/<session-id>/turns`.
  */
 export async function saveTurnRecord(record: TurnRecord): Promise<string> {
-  const dir = getTurnsDir();
+  const dir = getSessionTurnsDir(record.sessionId);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }

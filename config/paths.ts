@@ -66,7 +66,9 @@ export function getSessionsDir(): string {
 }
 
 /**
- * Directory for persisted turn records, `~/.openpaw/workspace/turns`.
+ * Legacy global turn-record directory, `~/.openpaw/workspace/turns`.
+ *
+ * @deprecated New turn records are stored under each session directory.
  */
 export function getTurnsDir(): string {
   return join(getWorkspaceRoot(), "turns");

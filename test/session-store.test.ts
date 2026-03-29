@@ -1,21 +1,26 @@
+/**
+ * Tests for session persistence, metadata, and legacy compatibility.
+ */
 import { describe, expect, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import { getSessionsDir } from "../config";
 import {
   deriveSessionTitle,
+  getLegacySessionFilePath,
   getSessionFilePath,
+  getSessionTurnsDir,
   loadSessionFile,
   loadSessionMessages,
   saveSessionMessages,
-  sessionIdToFilename,
+  sessionIdToDirname,
 } from "../agent";
 import { withTempOpenPawHome } from "./helpers";
 
 const TOOLS = {} as never;
 
 describe("session store", () => {
-  test("session filenames are filesystem-safe", () => {
-    expect(sessionIdToFilename("telegram:123/../../bad")).toBe("telegram_123_.._.._bad.json");
+  test("session directory names are filesystem-safe", () => {
+    expect(sessionIdToDirname("telegram:123/../../bad")).toBe("telegram_123_.._.._bad");
   });
 
   test("save and load session metadata", async () => {
@@ -39,6 +44,8 @@ describe("session store", () => {
       expect(loaded?.metadata.mode).toBe("coding");
       expect(loaded?.metadata.pinned).toBe(true);
       expect(loaded?.metadata.title).toBe("Build a release checklist");
+      expect(getSessionFilePath("tui:main")).toContain("/sessions/tui_main/session.json");
+      expect(getSessionTurnsDir("tui:main")).toContain("/sessions/tui_main/turns");
     } finally {
       temp.dispose();
     }
@@ -49,7 +56,7 @@ describe("session store", () => {
     try {
       mkdirSync(getSessionsDir(), { recursive: true });
       await Bun.write(
-        getSessionFilePath("tui:main"),
+        getLegacySessionFilePath("tui:main"),
         JSON.stringify({
           version: 1,
           messages: [

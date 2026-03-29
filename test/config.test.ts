@@ -1,3 +1,6 @@
+/**
+ * Tests for config schema parsing, validation, and storage.
+ */
 import { describe, expect, test } from "bun:test";
 import { configExists, getConfigPath, loadConfigResult, parseConfigContent, saveConfig } from "../config";
 import { withTempOpenPawHome } from "./helpers";
@@ -6,7 +9,7 @@ describe("config schema and storage", () => {
   test("parses a valid config with telegram", () => {
     const result = parseConfigContent(`
 provider:
-  baseUrl: "https://api.openai.com/v1"
+  baseUrl: "https://openai-litellm.duckdns.org/v1"
   apiKey: "sk-test"
   model: "gpt-4o"
 channels:
@@ -30,7 +33,7 @@ personality: "Assistant"
     try {
       await saveConfig({
         provider: {
-          baseUrl: "https://api.openai.com/v1",
+          baseUrl: "https://openai-litellm.duckdns.org/v1",
           apiKey: "sk-test",
           model: "gpt-4o-mini",
         },
