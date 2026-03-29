@@ -103,16 +103,24 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions): Prom
     skills,
   } = options;
 
-  const agentsRaw = (await readUtf8(join(workspacePath, "agents.md"))).trim();
-  const soulRaw = (await readUtf8(join(workspacePath, "soul.md"))).trim();
+  let agentsRaw = (await readUtf8(join(workspacePath, "AGENTS.md"))).trim();
+  if (!agentsRaw) {
+    agentsRaw = (await readUtf8(join(workspacePath, "agents.md"))).trim();
+  }
+  let soulRaw = (await readUtf8(join(workspacePath, "SOUL.md"))).trim();
+  if (!soulRaw) {
+    soulRaw = (await readUtf8(join(workspacePath, "soul.md"))).trim();
+  }
 
+  const agentsLabel = agentsRaw ? "AGENTS.md" : "agents.md";
   const agents = truncateContextContent(
-    scanContextContent(agentsRaw || "(empty)", "agents.md"),
-    "agents.md",
+    scanContextContent(agentsRaw || "(empty)", agentsLabel),
+    agentsLabel,
   );
+  const soulLabel = soulRaw ? "SOUL.md" : "soul.md";
   const soul = truncateContextContent(
-    scanContextContent(soulRaw || "(empty — consider asking the user)", "soul.md"),
-    "soul.md",
+    scanContextContent(soulRaw || "(empty — consider asking the user)", soulLabel),
+    soulLabel,
   );
 
   const platformBlock = PLATFORM_HINTS[surface];

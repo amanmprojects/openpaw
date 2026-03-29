@@ -73,13 +73,14 @@ export function ensureWorkspaceLayout(): void {
   }
   seedBundledFindSkillsIfAbsent(root);
   const files: { name: string; content: string }[] = [
-    { name: "agents.md", content: DEFAULT_AGENTS_MD },
-    { name: "soul.md", content: DEFAULT_SOUL_MD },
-    { name: "user.md", content: DEFAULT_USER_MD },
+    { name: "AGENTS.md", content: DEFAULT_AGENTS_MD },
+    { name: "SOUL.md", content: DEFAULT_SOUL_MD },
+    { name: "USER.md", content: DEFAULT_USER_MD },
   ];
   for (const { name, content } of files) {
     const p = join(root, name);
-    if (!existsSync(p)) {
+    const legacy = join(root, name.toLowerCase());
+    if (!existsSync(p) && !existsSync(legacy)) {
       writeFileSync(p, content, "utf8");
     }
   }

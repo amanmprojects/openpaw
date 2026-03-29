@@ -72,9 +72,9 @@ This creates:
 - config file: `~/.openpaw/config.yaml`
 - workspace: `~/.openpaw/workspace`
 - defaults:
-  - `~/.openpaw/workspace/agents.md`
-  - `~/.openpaw/workspace/soul.md`
-  - `~/.openpaw/workspace/user.md` (legacy; prefer the `memory` tool for profile facts)
+  - `~/.openpaw/workspace/AGENTS.md`
+  - `~/.openpaw/workspace/SOUL.md`
+  - `~/.openpaw/workspace/USER.md` (legacy; prefer the `memory` tool for profile facts)
   - `~/.openpaw/workspace/memories/` (curated `MEMORY.md` / `USER.md` via the `memory` tool)
   - `~/.openpaw/workspace/sessions/*`
 

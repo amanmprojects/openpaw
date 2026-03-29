@@ -3,7 +3,7 @@ import { getWorkspaceRoot } from "../config/paths";
 
 /**
  * CLI handler: delete `~/.openpaw/workspace` and recreate the same layout and
- * default markdown files as onboarding (`agents.md`, `soul.md`, `user.md`, empty `sessions/`).
+ * default markdown files as onboarding (`AGENTS.md`, `SOUL.md`, `USER.md`, empty `sessions/`).
  */
 export function handleReset(): void {
   const root = getWorkspaceRoot();
