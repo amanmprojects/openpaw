@@ -1,3 +1,7 @@
+/**
+ * Persistence for Telegram per-chat display and safety preferences.
+ */
+import type { ToolSafetyMode } from "../../agent/types";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { getSessionsDir } from "../../config/paths";
@@ -17,17 +21,25 @@ export type TelegramChatPreferences = {
    * file_editor may access the broader filesystem and bash uses $HOME as cwd.
    */
   sandboxRestricted: boolean;
+  /** Preferred safety mode; kept alongside sandboxRestricted for backward compatibility. */
+  safetyMode: ToolSafetyMode;
 };
 
 const DEFAULT_PREFS: TelegramChatPreferences = {
   showReasoning: true,
   showToolCalls: true,
   sandboxRestricted: true,
+  safetyMode: "workspace_only",
 };
 
 type PrefsFile = Record<
   string,
-  { showReasoning?: boolean; showToolCalls?: boolean; sandboxRestricted?: boolean }
+  {
+    showReasoning?: boolean;
+    showToolCalls?: boolean;
+    sandboxRestricted?: boolean;
+    safetyMode?: ToolSafetyMode;
+  }
 >;
 
 function prefsPath(): string {
@@ -65,10 +77,15 @@ async function writeAllPrefs(data: PrefsFile): Promise<void> {
 export async function getTelegramChatPreferences(chatId: number): Promise<TelegramChatPreferences> {
   const all = await readAllPrefs();
   const row = all[String(chatId)];
+  const safetyMode =
+    row?.safetyMode ??
+    (row?.sandboxRestricted === false ? "full_access" : DEFAULT_PREFS.safetyMode);
   return {
     showReasoning: row?.showReasoning ?? DEFAULT_PREFS.showReasoning,
     showToolCalls: row?.showToolCalls ?? DEFAULT_PREFS.showToolCalls,
-    sandboxRestricted: row?.sandboxRestricted ?? DEFAULT_PREFS.sandboxRestricted,
+    sandboxRestricted:
+      row?.sandboxRestricted ?? (safetyMode === "workspace_only"),
+    safetyMode,
   };
 }
 
@@ -78,22 +95,30 @@ export async function getTelegramChatPreferences(chatId: number): Promise<Telegr
 export async function setTelegramChatPreferences(
   chatId: number,
   patch: Partial<
-    Pick<TelegramChatPreferences, "showReasoning" | "showToolCalls" | "sandboxRestricted">
+    Pick<TelegramChatPreferences, "showReasoning" | "showToolCalls" | "sandboxRestricted" | "safetyMode">
   >,
 ): Promise<TelegramChatPreferences> {
   const all = await readAllPrefs();
   const key = String(chatId);
   const prev = all[key] ?? {};
+  const nextSafetyMode =
+    patch.safetyMode ??
+    prev.safetyMode ??
+    ((patch.sandboxRestricted ?? prev.sandboxRestricted ?? DEFAULT_PREFS.sandboxRestricted)
+      ? "workspace_only"
+      : "full_access");
   const next: TelegramChatPreferences = {
     showReasoning: patch.showReasoning ?? prev.showReasoning ?? DEFAULT_PREFS.showReasoning,
     showToolCalls: patch.showToolCalls ?? prev.showToolCalls ?? DEFAULT_PREFS.showToolCalls,
     sandboxRestricted:
-      patch.sandboxRestricted ?? prev.sandboxRestricted ?? DEFAULT_PREFS.sandboxRestricted,
+      patch.sandboxRestricted ?? (nextSafetyMode === "workspace_only"),
+    safetyMode: nextSafetyMode,
   };
   all[key] = {
     showReasoning: next.showReasoning,
     showToolCalls: next.showToolCalls,
     sandboxRestricted: next.sandboxRestricted,
+    safetyMode: next.safetyMode,
   };
   await writeAllPrefs(all);
   return next;

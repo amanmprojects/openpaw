@@ -1,7 +1,10 @@
+/**
+ * Dynamic system prompt assembly for the OpenPaw runtime.
+ */
 import { join } from "node:path";
 import type { Personality } from "../config/types";
 import type { SkillMetadata } from "./skills/discover";
-import type { OpenPawSurface } from "./types";
+import type { OpenPawSurface, SessionMode } from "./types";
 import {
   getPersonalityProse,
   MEMORY_GUIDANCE,
@@ -30,6 +33,8 @@ export type BuildSystemPromptOptions = {
   personality: Personality;
   /** Where the user is chatting from — affects formatting hints. */
   surface: OpenPawSurface;
+  /** Session mode used to bias prompt behavior for the current conversation. */
+  sessionMode: SessionMode;
   /** Frozen blocks from MemoryStore (may be null if empty). */
   memoryUserBlock: string | null;
   memoryAgentBlock: string | null;
@@ -72,6 +77,18 @@ ${lines}`;
 No skills discovered. Optional: add skill folders containing \`SKILL.md\` under \`.agents/skills\` in the workspace (or \`~/.config/agent/skills\`).`;
 }
 
+function buildSessionModeSection(sessionMode: SessionMode): string {
+  switch (sessionMode) {
+    case "coding":
+      return "Prefer concrete implementation details, small diffs, commands, and precise technical reasoning.";
+    case "research":
+      return "Prefer synthesis, comparison, explicit uncertainty, and concise evidence-backed explanations.";
+    case "general":
+    default:
+      return "Use the default OpenPaw style for mixed conversation, analysis, and light execution.";
+  }
+}
+
 /**
  * Assembles the dynamic system prompt: identity, guidance, platform, workspace files, frozen memory, optional project context.
  */
@@ -80,6 +97,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions): Prom
     workspacePath,
     personality,
     surface,
+    sessionMode,
     memoryUserBlock,
     memoryAgentBlock,
     skills,
@@ -124,6 +142,7 @@ export async function buildSystemPrompt(options: BuildSystemPromptOptions): Prom
   const sections = [
     `# Identity\n${OPENPAW_IDENTITY}`,
     `# Personality\n${getPersonalityProse(personality)}`,
+    `# Session mode\n${buildSessionModeSection(sessionMode)}`,
     `# How to talk with the user\n${USER_FACING_VOICE}`,
     `# Memory and persistence\n${MEMORY_GUIDANCE}\n\n${SESSION_NOTE}`,
     `# Your environment\n${platformBlock}`,

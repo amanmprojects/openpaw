@@ -1,7 +1,11 @@
+/**
+ * Discovery of persisted sessions visible from the terminal UI.
+ */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { readdir, stat } from "node:fs/promises";
 import { getSessionsDir } from "../../config/paths";
+import { parseSessionMetadataFromContent } from "../../agent/session-store";
 import type { SessionId } from "../../agent/types";
 import { TUI_ACTIVE_THREAD_FILENAME } from "./constants";
 import {
@@ -12,6 +16,9 @@ import {
 export type TuiSessionListEntry = {
   sessionId: SessionId;
   mtimeMs: number;
+  title: string | null;
+  pinned: boolean;
+  updatedAt: string | null;
 };
 
 function parseTuiSessionFilename(stem: string): SessionId | null {
@@ -84,11 +91,24 @@ export async function listTuiSessions(): Promise<TuiSessionListEntry[]> {
     const path = join(dir, name);
     try {
       const st = await stat(path);
-      entries.push({ sessionId, mtimeMs: st.mtimeMs });
+      const raw = await Bun.file(path).text();
+      const metadata = parseSessionMetadataFromContent(sessionId, raw);
+      entries.push({
+        sessionId,
+        mtimeMs: st.mtimeMs,
+        title: metadata?.title ?? null,
+        pinned: metadata?.pinned ?? false,
+        updatedAt: metadata?.updatedAt ?? null,
+      });
     } catch {
       continue;
     }
   }
-  entries.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  entries.sort((a, b) => {
+    if (a.pinned !== b.pinned) {
+      return a.pinned ? -1 : 1;
+    }
+    return b.mtimeMs - a.mtimeMs;
+  });
   return entries;
 }

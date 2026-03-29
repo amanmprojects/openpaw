@@ -1,3 +1,6 @@
+/**
+ * Telegram `/sessions` reply formatting and delivery.
+ */
 import type { Context } from "grammy";
 import { getTelegramPersistenceSessionId } from "./active-thread-store";
 import { listTelegramSessionsForChat } from "./session-file-discovery";
@@ -24,8 +27,10 @@ export async function replyWithSessionsList(ctx: Context, chatId: number): Promi
     const e = entries[i]!;
     const n = i + 1;
     const mark = e.sessionId === active ? " (active)" : "";
-    const label = formatTelegramSessionLabel(e.sessionId, chatId);
-    lines.push(`${n}. ${label}${mark}`);
+    const pin = e.pinned ? " [pinned]" : "";
+    const label = formatTelegramSessionLabel(e.sessionId, chatId, e.title);
+    const updated = e.updatedAt ? ` — ${new Date(e.updatedAt).toLocaleString()}` : "";
+    lines.push(`${n}. ${label}${mark}${pin}${updated}`);
   }
   if (entries.length > MAX_LINES) {
     lines.push(`…and ${entries.length - MAX_LINES} more.`);

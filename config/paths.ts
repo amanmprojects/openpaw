@@ -1,17 +1,23 @@
+/**
+ * Filesystem path helpers for the OpenPaw home directory and workspace.
+ */
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const CONFIG_DIR = join(homedir(), ".openpaw");
-const CONFIG_PATH = join(CONFIG_DIR, "config.yaml");
-const WORKSPACE_DIR = join(CONFIG_DIR, "workspace");
-const SESSIONS_DIR = join(WORKSPACE_DIR, "sessions");
+function getOpenPawHome(): string {
+  return process.env.OPENPAW_HOME?.trim() || join(homedir(), ".openpaw");
+}
+
+function getGatewayDir(): string {
+  return join(getOpenPawHome(), "gateway");
+}
 
 /**
  * Absolute path to the YAML config file, typically `~/.openpaw/config.yaml`.
  */
 export function getConfigPath(): string {
-  return CONFIG_PATH;
+  return join(getOpenPawHome(), "config.yaml");
 }
 
 /**
@@ -20,8 +26,9 @@ export function getConfigPath(): string {
  * @remarks Uses synchronous `mkdirSync` with `recursive: true`.
  */
 export function ensureConfigDir(): void {
-  if (!existsSync(CONFIG_DIR)) {
-    mkdirSync(CONFIG_DIR, { recursive: true });
+  const configDir = getOpenPawHome();
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true });
   }
 }
 
@@ -29,7 +36,7 @@ export function ensureConfigDir(): void {
  * Returns whether the config file exists at {@link getConfigPath}.
  */
 export function configExists(): boolean {
-  return existsSync(CONFIG_PATH);
+  return existsSync(getConfigPath());
 }
 
 /**
@@ -38,8 +45,9 @@ export function configExists(): boolean {
  * @remarks Uses synchronous `unlinkSync`.
  */
 export function deleteConfig(): void {
-  if (existsSync(CONFIG_PATH)) {
-    unlinkSync(CONFIG_PATH);
+  const configPath = getConfigPath();
+  if (existsSync(configPath)) {
+    unlinkSync(configPath);
   }
 }
 
@@ -47,14 +55,28 @@ export function deleteConfig(): void {
  * OpenPaw workspace root, typically `~/.openpaw/workspace`.
  */
 export function getWorkspaceRoot(): string {
-  return WORKSPACE_DIR;
+  return join(getOpenPawHome(), "workspace");
 }
 
 /**
  * Directory for persisted chat sessions, `~/.openpaw/workspace/sessions`.
  */
 export function getSessionsDir(): string {
-  return SESSIONS_DIR;
+  return join(getWorkspaceRoot(), "sessions");
+}
+
+/**
+ * Directory for persisted turn records, `~/.openpaw/workspace/turns`.
+ */
+export function getTurnsDir(): string {
+  return join(getWorkspaceRoot(), "turns");
+}
+
+/**
+ * Directory for daemon state and log files, `~/.openpaw/gateway`.
+ */
+export function getGatewayStateDir(): string {
+  return getGatewayDir();
 }
 
 /**
@@ -62,10 +84,20 @@ export function getSessionsDir(): string {
  */
 export function ensureWorkspaceDirectories(): void {
   ensureConfigDir();
-  if (!existsSync(WORKSPACE_DIR)) {
-    mkdirSync(WORKSPACE_DIR, { recursive: true });
+  const workspaceDir = getWorkspaceRoot();
+  const sessionsDir = getSessionsDir();
+  const turnsDir = getTurnsDir();
+  const gatewayDir = getGatewayStateDir();
+  if (!existsSync(workspaceDir)) {
+    mkdirSync(workspaceDir, { recursive: true });
   }
-  if (!existsSync(SESSIONS_DIR)) {
-    mkdirSync(SESSIONS_DIR, { recursive: true });
+  if (!existsSync(sessionsDir)) {
+    mkdirSync(sessionsDir, { recursive: true });
+  }
+  if (!existsSync(turnsDir)) {
+    mkdirSync(turnsDir, { recursive: true });
+  }
+  if (!existsSync(gatewayDir)) {
+    mkdirSync(gatewayDir, { recursive: true });
   }
 }

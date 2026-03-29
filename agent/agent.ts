@@ -1,3 +1,6 @@
+/**
+ * Agent runtime assembly and turn execution for OpenPaw.
+ */
 import {
   createAgentUIStream,
   generateId,
@@ -5,21 +8,34 @@ import {
   validateUIMessages,
 } from "ai";
 import type { OpenPawConfig } from "../config/types";
+import { logInfo } from "../lib/log";
 import { buildSystemPrompt } from "./prompt-builder";
 import { MemoryStore } from "./memory-store";
 import { createLanguageModel } from "./model";
+import { saveTurnRecord } from "./turn-record-store";
+import { buildToolExecutionPolicy } from "./tool-policy";
 import {
   refreshSkillCatalog,
   type OpenPawSkillCatalog,
 } from "./skill-catalog";
-import { loadSessionMessages, saveSessionMessages } from "./session-store";
+import { loadSessionFile, saveSessionMessages } from "./session-store";
 import { createBashTool } from "./tools/bash";
 import { createFileEditorTool } from "./tools/file-editor";
 import { createListDirTool } from "./tools/list-dir";
 import { createLoadSkillTool } from "./tools/load-skill";
 import { createMemoryTool } from "./tools/memory";
-import type { OpenPawSurface, RunTurnParams } from "./types";
-import { getTurnSurface, isSandboxRestricted, runWithTurnContext } from "./turn-context";
+import type {
+  OpenPawSurface,
+  RunTurnParams,
+  SessionMode,
+  ToolSafetyMode,
+} from "./types";
+import {
+  getTurnSessionMode,
+  getTurnSurface,
+  isSandboxRestricted,
+  runWithTurnContext,
+} from "./turn-context";
 
 const STATIC_AGENT_INSTRUCTIONS = [
   "You are OpenPaw, a capable local assistant.",
@@ -72,6 +88,7 @@ export function createOpenPawAgent(
         workspacePath,
         personality: config.personality,
         surface: getTurnSurface(),
+        sessionMode: getTurnSessionMode(),
         memoryUserBlock: memoryStore.formatForSystemPrompt("user"),
         memoryAgentBlock: memoryStore.formatForSystemPrompt("memory"),
         skills: skillCatalog.skills,
@@ -125,15 +142,28 @@ async function runTurnWithAgent(
   const {
     sessionId,
     userText,
-    sandboxRestricted = true,
     surface = surfaceFromSessionId(sessionId),
+    sandboxRestricted = true,
+    safetyMode = sandboxRestricted ? "workspace_only" : "full_access",
+    sessionMode,
     onTextDelta,
     onReasoningDelta,
     onToolStatus,
   } = params;
 
-  return runWithTurnContext({ sandboxRestricted, surface }, async () => {
-    const prior = await loadSessionMessages(sessionId, agent.tools);
+  const requestedSafetyMode: ToolSafetyMode = safetyMode;
+  const startedAt = new Date().toISOString();
+  const existing = await loadSessionFile(sessionId, agent.tools);
+  const effectiveSessionMode: SessionMode =
+    sessionMode ?? existing?.metadata.mode ?? "general";
+
+  return runWithTurnContext({
+    surface,
+    safetyMode: requestedSafetyMode,
+    sessionMode: effectiveSessionMode,
+    toolPolicy: buildToolExecutionPolicy(requestedSafetyMode),
+  }, async () => {
+    const prior = existing?.messages ?? [];
     const userMessage = {
       id: generateId(),
       role: "user" as const,
@@ -148,12 +178,16 @@ async function runTurnWithAgent(
 
     let accumulated = "";
     const toolNameByCallId = new Map<string, string>();
+    const toolStatuses = new Map<string, { toolName: string; status: "pending" | "ok" | "error" | "denied" }>();
 
     const stream = await createAgentUIStream({
       agent,
       uiMessages,
       onFinish: async ({ messages }) => {
-        await saveSessionMessages(sessionId, messages);
+        await saveSessionMessages(sessionId, messages, {
+          surface,
+          metadataPatch: { mode: effectiveSessionMode },
+        });
       },
     });
 
@@ -170,8 +204,16 @@ async function runTurnWithAgent(
         onReasoningDelta?.(chunk.delta);
       } else if (chunk.type === "tool-input-start") {
         toolNameByCallId.set(chunk.toolCallId, chunk.toolName);
+        toolStatuses.set(chunk.toolCallId, {
+          toolName: chunk.toolName,
+          status: "pending",
+        });
       } else if (chunk.type === "tool-input-available") {
         toolNameByCallId.set(chunk.toolCallId, chunk.toolName);
+        toolStatuses.set(chunk.toolCallId, {
+          toolName: chunk.toolName,
+          status: "pending",
+        });
         onToolStatus?.({
           type: "tool_input",
           toolCallId: chunk.toolCallId,
@@ -180,6 +222,10 @@ async function runTurnWithAgent(
         });
       } else if (chunk.type === "tool-input-error") {
         toolNameByCallId.set(chunk.toolCallId, chunk.toolName);
+        toolStatuses.set(chunk.toolCallId, {
+          toolName: chunk.toolName,
+          status: "error",
+        });
         onToolStatus?.({
           type: "tool_error",
           toolCallId: chunk.toolCallId,
@@ -188,6 +234,7 @@ async function runTurnWithAgent(
         });
       } else if (chunk.type === "tool-output-available") {
         const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
+        toolStatuses.set(chunk.toolCallId, { toolName, status: "ok" });
         onToolStatus?.({
           type: "tool_output",
           toolCallId: chunk.toolCallId,
@@ -196,6 +243,7 @@ async function runTurnWithAgent(
         });
       } else if (chunk.type === "tool-output-error") {
         const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
+        toolStatuses.set(chunk.toolCallId, { toolName, status: "error" });
         onToolStatus?.({
           type: "tool_error",
           toolCallId: chunk.toolCallId,
@@ -204,6 +252,7 @@ async function runTurnWithAgent(
         });
       } else if (chunk.type === "tool-output-denied") {
         const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
+        toolStatuses.set(chunk.toolCallId, { toolName, status: "denied" });
         onToolStatus?.({
           type: "tool_denied",
           toolCallId: chunk.toolCallId,
@@ -211,6 +260,31 @@ async function runTurnWithAgent(
         });
       }
     }
+
+    const completedAt = new Date().toISOString();
+    const durationMs =
+      new Date(completedAt).getTime() - new Date(startedAt).getTime();
+    const recordPath = await saveTurnRecord({
+      sessionId,
+      startedAt,
+      completedAt,
+      durationMs,
+      surface,
+      toolCalls: [...toolStatuses.values()]
+        .filter((entry) => entry.status !== "pending")
+        .map((entry) => ({
+          toolName: entry.toolName,
+          status: entry.status as "ok" | "error" | "denied",
+        })),
+    });
+    logInfo("agent.turn.completed", {
+      sessionId,
+      surface,
+      safetyMode: requestedSafetyMode,
+      sessionMode: effectiveSessionMode,
+      durationMs,
+      turnRecordPath: recordPath,
+    });
 
     return { text: accumulated };
   });

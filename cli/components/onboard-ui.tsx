@@ -1,7 +1,11 @@
+/**
+ * Shared OpenTUI onboarding screens and layout helpers.
+ */
 import { TextAttributes, type SelectOption } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { OpenPawConfig } from "../../config";
+import type { ProviderProbeResult } from "../../config";
 import { ONBOARD } from "./theme";
 
 export { ONBOARD };
@@ -151,6 +155,7 @@ export function InputScreen({
   onBack,
   placeholder,
   password,
+  allowEmpty = false,
 }: {
   title: string;
   label: string;
@@ -160,6 +165,7 @@ export function InputScreen({
   onBack?: () => void;
   placeholder?: string;
   password?: boolean;
+  allowEmpty?: boolean;
 }) {
   const renderer = useRenderer();
   const [error, setError] = useState(false);
@@ -174,7 +180,7 @@ export function InputScreen({
   });
 
   const handleSubmit = (submitted: string) => {
-    if (submitted.trim() === "") {
+    if (!allowEmpty && submitted.trim() === "") {
       setError(true);
       return;
     }
@@ -238,6 +244,33 @@ export function PersonalityScreen({
   );
 }
 
+export function MenuScreen({
+  title,
+  label,
+  items,
+  onSelect,
+  onBack,
+}: {
+  title: string;
+  label: string;
+  items: string[];
+  onSelect: (index: number) => void;
+  onBack?: () => void;
+}) {
+  return (
+    <OnboardScreenLayout>
+      <text fg={ONBOARD.accent}>
+        <strong>{title}</strong>
+      </text>
+      <text fg={ONBOARD.text}>{label}</text>
+      <OnboardSelect items={items} onSelect={onSelect} onBack={onBack} />
+      <box flexDirection="column" marginTop={1}>
+        <FooterHints variant="menu" hasBack={!!onBack} />
+      </box>
+    </OnboardScreenLayout>
+  );
+}
+
 function maskSecret(s: string, maxStars = 20) {
   return "*".repeat(Math.min(s.length, maxStars));
 }
@@ -247,19 +280,30 @@ export function ConfirmScreen({
   onConfirm,
   onRestart,
   onBack,
+  hasExistingConfig,
+  probeResult,
+  saving,
 }: {
   config: OpenPawConfig;
   onConfirm: () => void;
   onRestart: () => void;
   onBack?: () => void;
+  hasExistingConfig: boolean;
+  probeResult?: ProviderProbeResult | null;
+  saving?: boolean;
 }) {
-  const menuItems = ["Save and continue", "Start over"];
+  const menuItems = [saving ? "Testing connection..." : "Test connection and save", "Start over"];
 
   return (
     <OnboardScreenLayout>
       <text fg={ONBOARD.accent}>
         <strong>Confirm configuration</strong>
       </text>
+      {hasExistingConfig ? (
+        <text fg={ONBOARD.hint}>
+          Existing config detected. Saving will overwrite it after a successful connection test.
+        </text>
+      ) : null}
       <box flexDirection="column" gap={0}>
         <text fg={ONBOARD.text}>
           <strong>Provider</strong>
@@ -286,9 +330,14 @@ export function ConfirmScreen({
         </text>
         <text fg={ONBOARD.muted}>  {config.personality}</text>
       </box>
+      {probeResult ? (
+        <text fg={probeResult.ok ? ONBOARD.success : ONBOARD.error}>
+          {probeResult.message}
+        </text>
+      ) : null}
       <OnboardSelect
         items={menuItems}
-        onSelect={(i) => (i === 0 ? onConfirm() : onRestart())}
+        onSelect={(i) => (i === 0 && !saving ? onConfirm() : onRestart())}
         onBack={onBack}
       />
       <box flexDirection="column" marginTop={1}>

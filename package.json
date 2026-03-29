@@ -1,6 +1,6 @@
 {
   "name": "@amanm/openpaw",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Local Bun + TypeScript agent runtime with TUI and messaging gateway adapters.",
   "repository": {
     "type": "git",
@@ -21,7 +21,10 @@
     "gateway:dev": "bun run ./cli/openpaw.tsx gateway dev",
     "tui": "bun run ./cli/openpaw.tsx tui",
     "onboard": "bun run ./cli/openpaw.tsx onboard",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test",
+    "lint": "bun run ./scripts/lint.ts",
+    "check": "bun run typecheck && bun run test && bun run lint"
   },
   "devDependencies": {
     "@types/bun": "latest"

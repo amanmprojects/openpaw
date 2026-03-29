@@ -1,10 +1,14 @@
 #!/usr/bin/env bun
+/**
+ * Interactive onboarding flow for configuring OpenPaw.
+ */
 import { createCliRenderer } from "@opentui/core";
 import { createRoot, useKeyboard, useRenderer } from "@opentui/react";
-import { useCallback, useEffect, useReducer, useState } from "react";
+import { useCallback, useReducer, useState } from "react";
 import {
   configExists,
-  deleteConfig,
+  loadConfig,
+  probeProviderConnection,
   saveConfig,
   PERSONALITIES,
   type OpenPawConfig,
@@ -15,22 +19,29 @@ import { ensureWorkspaceLayout } from "../agent/workspace-bootstrap";
 import {
   WelcomeScreen,
   InputScreen,
+  MenuScreen,
   PersonalityScreen,
   ConfirmScreen,
   StartChatScreen,
 } from "./components/onboard-ui";
+import { runOpenPawTui } from "./tui";
 
 type Step =
+  | "provider-preset"
   | "provider-baseUrl"
   | "provider-apiKey"
   | "provider-model"
-  | "telegram"
+  | "telegram-choice"
+  | "telegram-token"
   | "personality"
   | "confirm"
   | "start-chat";
 
+type ProviderPreset = "openai" | "openrouter" | "ollama" | "custom";
+
 type WizardState = {
   step: Step;
+  providerPreset: ProviderPreset;
   provider: ProviderConfig;
   botToken: string;
   personality: Personality;
@@ -38,21 +49,56 @@ type WizardState = {
 
 type WizardAction =
   | { type: "SET_STEP"; step: Step }
+  | { type: "SET_PROVIDER_PRESET"; value: ProviderPreset }
   | { type: "PATCH_PROVIDER"; patch: Partial<ProviderConfig> }
   | { type: "SET_BOT_TOKEN"; value: string }
   | { type: "SET_PERSONALITY"; value: Personality };
 
-const initialWizardState: WizardState = {
-  step: "provider-baseUrl",
-  provider: { baseUrl: "", apiKey: "", model: "" },
-  botToken: "",
-  personality: "Assistant",
+const PROVIDER_PRESETS: Record<
+  ProviderPreset,
+  { label: string; provider: Partial<ProviderConfig> }
+> = {
+  openai: {
+    label: "OpenAI",
+    provider: { baseUrl: "https://api.openai.com/v1", model: "gpt-4o" },
+  },
+  openrouter: {
+    label: "OpenRouter",
+    provider: { baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini" },
+  },
+  ollama: {
+    label: "Local / Ollama",
+    provider: { baseUrl: "http://localhost:11434/v1", model: "llama3.1" },
+  },
+  custom: {
+    label: "Custom",
+    provider: {},
+  },
 };
+
+function initialWizardState(existingConfig: OpenPawConfig | null): WizardState {
+  return {
+    step: "provider-preset",
+    providerPreset: "openai",
+    provider: existingConfig?.provider ?? { baseUrl: "", apiKey: "", model: "" },
+    botToken: existingConfig?.channels?.telegram?.botToken ?? "",
+    personality: existingConfig?.personality ?? "Assistant",
+  };
+}
 
 function wizardReducer(state: WizardState, action: WizardAction): WizardState {
   switch (action.type) {
     case "SET_STEP":
       return { ...state, step: action.step };
+    case "SET_PROVIDER_PRESET":
+      return {
+        ...state,
+        providerPreset: action.value,
+        provider: {
+          ...state.provider,
+          ...PROVIDER_PRESETS[action.value].provider,
+        },
+      };
     case "PATCH_PROVIDER":
       return { ...state, provider: { ...state.provider, ...action.patch } };
     case "SET_BOT_TOKEN":
@@ -67,14 +113,25 @@ function wizardReducer(state: WizardState, action: WizardAction): WizardState {
 }
 
 function OnboardingWizard({
+  existingConfig,
   onComplete,
 }: {
+  existingConfig: OpenPawConfig | null;
   onComplete: (startChat: boolean) => void;
 }) {
-  const [state, dispatch] = useReducer(wizardReducer, initialWizardState);
+  const [state, dispatch] = useReducer(wizardReducer, existingConfig, initialWizardState);
   const { step, provider, botToken, personality } = state;
+  const [probeResult, setProbeResult] = useState<Awaited<ReturnType<typeof probeProviderConnection>> | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const handleConfirm = async () => {
+    setSaving(true);
+    const result = await probeProviderConnection(provider);
+    setProbeResult(result);
+    if (!result.ok) {
+      setSaving(false);
+      return;
+    }
     const config: OpenPawConfig = {
       provider,
       channels: botToken ? { telegram: { botToken } } : undefined,
@@ -82,10 +139,24 @@ function OnboardingWizard({
     };
     await saveConfig(config);
     ensureWorkspaceLayout();
+    setSaving(false);
     dispatch({ type: "SET_STEP", step: "start-chat" });
   };
 
   switch (step) {
+    case "provider-preset":
+      return (
+        <MenuScreen
+          title="Provider Preset"
+          label="Choose a starting provider preset:"
+          items={Object.values(PROVIDER_PRESETS).map((preset) => preset.label)}
+          onSelect={(index) => {
+            const value = (Object.keys(PROVIDER_PRESETS)[index] ?? "openai") as ProviderPreset;
+            dispatch({ type: "SET_PROVIDER_PRESET", value });
+            dispatch({ type: "SET_STEP", step: "provider-baseUrl" });
+          }}
+        />
+      );
     case "provider-baseUrl":
       return (
         <InputScreen
@@ -98,6 +169,9 @@ function OnboardingWizard({
           }
           onSubmit={() =>
             dispatch({ type: "SET_STEP", step: "provider-apiKey" })
+          }
+          onBack={() =>
+            dispatch({ type: "SET_STEP", step: "provider-preset" })
           }
           placeholder="https://api.openai.com/v1"
         />
@@ -132,29 +206,50 @@ function OnboardingWizard({
           onChange={(v) =>
             dispatch({ type: "PATCH_PROVIDER", patch: { model: v } })
           }
-          onSubmit={() => dispatch({ type: "SET_STEP", step: "telegram" })}
+          onSubmit={() => dispatch({ type: "SET_STEP", step: "telegram-choice" })}
           onBack={() =>
             dispatch({ type: "SET_STEP", step: "provider-apiKey" })
           }
           placeholder="gpt-4o"
         />
       );
-    case "telegram":
+    case "telegram-choice":
+      return (
+        <MenuScreen
+          title="Channel Configuration"
+          label="How do you want to start?"
+          items={[
+            "TUI only for now",
+            botToken ? "Keep or edit Telegram bot token" : "Add Telegram bot token",
+          ]}
+          onSelect={(index) => {
+            if (index === 0) {
+              dispatch({ type: "SET_BOT_TOKEN", value: "" });
+              dispatch({ type: "SET_STEP", step: "personality" });
+              return;
+            }
+            dispatch({ type: "SET_STEP", step: "telegram-token" });
+          }}
+          onBack={() => dispatch({ type: "SET_STEP", step: "provider-model" })}
+        />
+      );
+    case "telegram-token":
       return (
         <InputScreen
           key={step}
           title="Channel Configuration"
-          label="Enter your Telegram bot token:"
+          label="Enter your Telegram bot token (optional, press Enter on an empty field to skip):"
           value={botToken}
           onChange={(v) => dispatch({ type: "SET_BOT_TOKEN", value: v })}
           onSubmit={() =>
             dispatch({ type: "SET_STEP", step: "personality" })
           }
           onBack={() =>
-            dispatch({ type: "SET_STEP", step: "provider-model" })
+            dispatch({ type: "SET_STEP", step: "telegram-choice" })
           }
           placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
           password
+          allowEmpty
         />
       );
     case "personality":
@@ -169,7 +264,7 @@ function OnboardingWizard({
             });
             dispatch({ type: "SET_STEP", step: "confirm" });
           }}
-          onBack={() => dispatch({ type: "SET_STEP", step: "telegram" })}
+          onBack={() => dispatch({ type: "SET_STEP", step: "telegram-choice" })}
         />
       );
     case "confirm":
@@ -183,11 +278,14 @@ function OnboardingWizard({
           }}
           onConfirm={handleConfirm}
           onRestart={() =>
-            dispatch({ type: "SET_STEP", step: "provider-baseUrl" })
+            dispatch({ type: "SET_STEP", step: "provider-preset" })
           }
           onBack={() =>
             dispatch({ type: "SET_STEP", step: "personality" })
           }
+          hasExistingConfig={existingConfig !== null || configExists()}
+          probeResult={probeResult}
+          saving={saving}
         />
       );
     case "start-chat":
@@ -205,15 +303,9 @@ function OnboardingWizard({
   }
 }
 
-function App() {
+function App({ existingConfig }: { existingConfig: OpenPawConfig | null }) {
   const [showWelcome, setShowWelcome] = useState(true);
   const renderer = useRenderer();
-
-  useEffect(() => {
-    if (configExists()) {
-      deleteConfig();
-    }
-  }, []);
 
   useKeyboard((key) => {
     if (key.name === "escape") {
@@ -224,7 +316,7 @@ function App() {
   const handleOnboardingComplete = (startChat: boolean) => {
     renderer.destroy();
     if (startChat) {
-      console.log("Starting chat...");
+      void runOpenPawTui();
     }
   };
 
@@ -236,13 +328,19 @@ function App() {
     return <WelcomeScreen onComplete={dismissWelcome} />;
   }
 
-  return <OnboardingWizard onComplete={handleOnboardingComplete} />;
+  return <OnboardingWizard existingConfig={existingConfig} onComplete={handleOnboardingComplete} />;
 }
 
 export async function handleOnboard(options: {}) {
+  const existingConfig = await loadConfig();
   const renderer = await createCliRenderer({
     exitOnCtrlC: true,
   });
   const root = createRoot(renderer);
-  root.render(<App />);
+  root.render(
+    <App
+      key={existingConfig ? "existing" : "fresh"}
+      existingConfig={existingConfig}
+    />,
+  );
 }

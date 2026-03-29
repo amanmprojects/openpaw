@@ -1,3 +1,6 @@
+/**
+ * Formatting for the TUI `/sessions` transcript message.
+ */
 import type { SessionId } from "../../agent/types";
 import { formatTuiSessionLabel } from "./tui-session-label";
 import type { TuiSessionListEntry } from "./tui-session-discovery";
@@ -22,8 +25,10 @@ export function formatTuiSessionsListMessage(
     const e = entries[i]!;
     const n = i + 1;
     const mark = e.sessionId === activeSessionId ? " (active)" : "";
-    const label = formatTuiSessionLabel(e.sessionId);
-    lines.push(`${n}. ${label}${mark}`);
+    const pin = e.pinned ? " [pinned]" : "";
+    const label = formatTuiSessionLabel(e.sessionId, e.title);
+    const updated = e.updatedAt ? ` — ${new Date(e.updatedAt).toLocaleString()}` : "";
+    lines.push(`${n}. ${label}${mark}${pin}${updated}`);
   }
   if (entries.length > MAX_LINES) {
     lines.push(`…and ${entries.length - MAX_LINES} more.`);

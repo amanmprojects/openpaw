@@ -1,6 +1,10 @@
+/**
+ * Messaging channel startup orchestration for the gateway process.
+ */
 import { createGatewayContext, type OpenPawGatewayContext } from "./bootstrap";
 import type { ChannelAdapter } from "./channel-adapter";
 import { createTelegramChannelAdapter } from "./telegram/adapter";
+import { logInfo } from "../lib/log";
 
 /**
  * Build all messaging adapters that are activated by the current config.
@@ -27,7 +31,9 @@ export async function runGatewayMessagingChannels(ctx: OpenPawGatewayContext): P
     );
   }
 
-  console.log(`OpenPaw gateway starting: ${adapters.map((a) => a.id).join(", ")}`);
+  logInfo("gateway.starting", {
+    adapters: adapters.map((adapter) => adapter.id),
+  });
   await Promise.all(adapters.map((a) => a.run()));
 }
 

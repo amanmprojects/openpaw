@@ -1,4 +1,8 @@
+/**
+ * Telegram bot command registration for OpenPaw.
+ */
 import type { Bot } from "grammy";
+import { logWarn } from "../../lib/log";
 import { OPENPAW_SLASH_COMMAND_NAMES } from "../slash-command-tokens";
 
 const OPENPAW_COMMAND_DESCRIPTIONS: Record<(typeof OPENPAW_SLASH_COMMAND_NAMES)[number], string> =
@@ -31,10 +35,10 @@ export async function registerOpenPawBotCommands(bot: Bot): Promise<void> {
     try {
       await bot.api.setMyCommands(OPENPAW_COMMANDS, { scope });
     } catch (e) {
-      console.warn(
-        `OpenPaw: setMyCommands failed (scope=${scope.type}). Menu may be wrong in some chats:`,
-        e instanceof Error ? e.message : e,
-      );
+      logWarn("telegram.set_my_commands_failed", {
+        scope: scope.type,
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 }

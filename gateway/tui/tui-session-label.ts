@@ -1,7 +1,10 @@
 /**
  * Human-readable label for a TUI /sessions row.
  */
-export function formatTuiSessionLabel(sessionId: string): string {
+export function formatTuiSessionLabel(sessionId: string, title?: string | null): string {
+  if (title?.trim()) {
+    return title.trim();
+  }
   const tuiLegacy = "tui:main";
   if (sessionId === tuiLegacy) {
     return "main";

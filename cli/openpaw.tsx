@@ -1,6 +1,13 @@
 #!/usr/bin/env bun
+/**
+ * Main OpenPaw CLI entrypoint and command registration.
+ */
 import { program } from "commander";
+import { handleDoctor } from "./doctor";
+import { handleMemoryList, handleMemoryRemove, handleMemoryReplace } from "./memory";
 import { startGateway } from "../gateway";
+import { handleSessionExport } from "./sessions";
+import { handleSkillsList, handleSkillsRefresh } from "./skills";
 import { runOpenPawTui } from "./tui";
 import { handleOnboard } from "./onboard";
 import { handleReset } from "./reset";
@@ -34,6 +41,76 @@ program
   .command("onboard")
   .description("Go through the onboarding setup")
   .action(handleOnboard);
+
+const memory = program.command("memory").description("Inspect and maintain persistent memory");
+
+memory
+  .command("list")
+  .description("List all memory entries")
+  .action(() => handleMemoryList());
+
+memory
+  .command("user")
+  .description("List user memory entries")
+  .action(() => handleMemoryList("user"));
+
+memory
+  .command("agent")
+  .description("List agent memory entries")
+  .action(() => handleMemoryList("memory"));
+
+memory
+  .command("remove")
+  .description("Remove the first memory entry matching text")
+  .argument("<target>", "memory or user")
+  .argument("<match>", "substring to match")
+  .action(async (target: "memory" | "user", match: string) => {
+    await handleMemoryRemove(target, match);
+  });
+
+memory
+  .command("replace")
+  .description("Replace the first memory entry matching text")
+  .argument("<target>", "memory or user")
+  .argument("<oldText>", "substring to match")
+  .argument("<content>", "new full entry content")
+  .action(async (target: "memory" | "user", oldText: string, content: string) => {
+    await handleMemoryReplace(target, oldText, content);
+  });
+
+const skills = program.command("skills").description("Inspect installed skills");
+
+skills
+  .command("list")
+  .description("List discovered skills")
+  .action(async () => {
+    await handleSkillsList();
+  });
+
+skills
+  .command("refresh")
+  .description("Refresh skill discovery")
+  .action(async () => {
+    await handleSkillsRefresh();
+  });
+
+const sessions = program.command("sessions").description("Inspect persisted sessions");
+
+sessions
+  .command("export")
+  .description("Export one session to stdout")
+  .argument("<sessionId>", "session id to export")
+  .option("--format <format>", "json or markdown", "markdown")
+  .action(async (sessionId: string, options: { format?: "json" | "markdown" }) => {
+    await handleSessionExport(sessionId, options.format ?? "markdown");
+  });
+
+program
+  .command("doctor")
+  .description("Print local diagnostic information")
+  .action(async () => {
+    await handleDoctor();
+  });
 
 program
   .command("update")
