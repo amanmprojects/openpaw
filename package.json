@@ -1,6 +1,6 @@
 {
   "name": "@amanm/openpaw",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Local Bun + TypeScript agent runtime with TUI and messaging gateway adapters.",
   "repository": {
     "type": "git",
@@ -39,6 +39,7 @@
     "cli/",
     "config/",
     "gateway/",
+    "lib/",
     "README.md",
     "AGENTS.md"
   ],
