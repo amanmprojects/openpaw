@@ -41,8 +41,8 @@ import {
   assistantLineIsEmpty,
   assistantSegmentsAreBlank,
   defaultWelcomeLines,
-  replaceToolHint,
   transcriptMarkdownWidth,
+  updateToolHint,
 } from "./transcript";
 
 export type { AssistantSegment, ChatLine } from "../../lib/chat-transcript-types";
@@ -421,7 +421,7 @@ export function ChatApp({
               const prev = toolHintAccum.get(ev.toolCallId) ?? "";
               toolHintAccum.set(ev.toolCallId, prev + ev.delta);
               const hint = extractToolHint(ev.toolName, toolHintAccum.get(ev.toolCallId) ?? "");
-              assistantSegments = replaceToolHint(assistantSegments, ev.toolCallId, hint);
+              assistantSegments = updateToolHint(assistantSegments, ev.toolCallId, hint);
             } else if (ev.type === "tool_input") {
               toolHintAccum.delete(ev.toolCallId);
               const line = formatToolStreamEventForTui(ev);
@@ -438,6 +438,13 @@ export function ChatApp({
                 const prefix = lastSeg?.kind === "tool" ? "\n" : "";
                 assistantSegments = appendAssistantSegment(assistantSegments, "tool", `${prefix}${line}`);
               }
+            } else if (ev.type === "tool_output" || ev.type === "tool_error" || ev.type === "tool_denied") {
+              toolHintAccum.delete(ev.toolCallId);
+              const line = formatToolStreamEventForTui(ev);
+              if (!line) return;
+              const lastSeg = assistantSegments[assistantSegments.length - 1];
+              const prefix = lastSeg?.kind === "tool" ? "\n" : "";
+              assistantSegments = appendAssistantSegment(assistantSegments, "tool", `${prefix}${line}`);
             } else {
               const line = formatToolStreamEventForTui(ev);
               if (!line) return;
@@ -483,6 +490,7 @@ export function ChatApp({
           return [...next, { role: "system", text: `Error: ${msg}` }];
         });
       } finally {
+        toolHintAccum.clear();
         setBusy(false);
       }
     },
