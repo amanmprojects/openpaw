@@ -231,6 +231,7 @@ async function runTurnWithAgent(
           toolName: chunk.toolName,
           status: "pending",
         });
+        partialInputByCallId.delete(chunk.toolCallId);
         onToolStatus?.({
           type: "tool_input",
           toolCallId: chunk.toolCallId,
@@ -243,6 +244,7 @@ async function runTurnWithAgent(
           toolName: chunk.toolName,
           status: "error",
         });
+        partialInputByCallId.delete(chunk.toolCallId);
         onToolStatus?.({
           type: "tool_error",
           toolCallId: chunk.toolCallId,
@@ -252,6 +254,7 @@ async function runTurnWithAgent(
       } else if (chunk.type === "tool-output-available") {
         const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
         toolStatuses.set(chunk.toolCallId, { toolName, status: "ok" });
+        partialInputByCallId.delete(chunk.toolCallId);
         onToolStatus?.({
           type: "tool_output",
           toolCallId: chunk.toolCallId,
@@ -261,6 +264,7 @@ async function runTurnWithAgent(
       } else if (chunk.type === "tool-output-error") {
         const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
         toolStatuses.set(chunk.toolCallId, { toolName, status: "error" });
+        partialInputByCallId.delete(chunk.toolCallId);
         onToolStatus?.({
           type: "tool_error",
           toolCallId: chunk.toolCallId,
@@ -270,6 +274,7 @@ async function runTurnWithAgent(
       } else if (chunk.type === "tool-output-denied") {
         const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
         toolStatuses.set(chunk.toolCallId, { toolName, status: "denied" });
+        partialInputByCallId.delete(chunk.toolCallId);
         onToolStatus?.({
           type: "tool_denied",
           toolCallId: chunk.toolCallId,
