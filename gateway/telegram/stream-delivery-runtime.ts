@@ -595,9 +595,23 @@ export async function deliverStreamingReply(
           if (existing) {
             if (item.hint !== existing.lastHint && now - existing.lastEdit >= EDIT_INTERVAL_MS) {
               const html = formatToolHintHtml(item.toolName, item.hint);
-              await sendOrEditRobust(ctx, chatId, html, existing.messageId, metrics, "HTML");
-              existing.lastHint = item.hint;
-              existing.lastEdit = now;
+              const beforeFailures = metrics.editFailures;
+              const newMessageId = await sendOrEditRobust(
+                ctx,
+                chatId,
+                html,
+                existing.messageId,
+                metrics,
+                "HTML",
+              );
+              const noNewFailures = metrics.editFailures === beforeFailures;
+              const switchedMessage = newMessageId !== undefined && newMessageId !== existing.messageId;
+              const updatedInPlace = newMessageId === existing.messageId && noNewFailures;
+              if (switchedMessage || updatedInPlace) {
+                existing.messageId = newMessageId ?? existing.messageId;
+                existing.lastHint = item.hint;
+                existing.lastEdit = now;
+              }
             }
           } else {
             await finalizePhase();
