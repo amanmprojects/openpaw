@@ -20,12 +20,28 @@ export function appendAssistantSegment(
   segments: AssistantSegment[],
   kind: AssistantSegment["kind"],
   delta: string,
+  toolCallId?: string,
 ): AssistantSegment[] {
   const last = segments[segments.length - 1];
-  if (last?.kind === kind) {
-    return [...segments.slice(0, -1), { kind, text: last.text + delta }];
+  if (last?.kind === kind && (kind !== "tool-hint" || last.toolCallId === toolCallId)) {
+    return [...segments.slice(0, -1), { kind, text: last.text + delta, toolCallId: toolCallId ?? last.toolCallId }];
   }
-  return [...segments, { kind, text: delta }];
+  return [...segments, { kind, text: delta, toolCallId }];
+}
+
+/**
+ * Replaces a tool-hint segment (matched by toolCallId) with a tool segment containing the full content.
+ */
+export function replaceToolHint(
+  segments: AssistantSegment[],
+  toolCallId: string,
+  replacement: string,
+): AssistantSegment[] {
+  return segments.map((s) =>
+    s.kind === "tool-hint" && s.toolCallId === toolCallId
+      ? { kind: "tool", text: replacement, toolCallId: undefined }
+      : s,
+  );
 }
 
 /**
@@ -58,6 +74,22 @@ function BusySpinner() {
   return (
     <text fg={ONBOARD.accent} marginTop={1} selectable>
       {SPINNER_FRAMES[frame]} Thinking…
+    </text>
+  );
+}
+
+/**
+ * Animated tool status hint shown while tool input is streaming in.
+ */
+function ToolHintLine({ hint }: { hint: string }) {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setFrame((f) => (f + 1) % SPINNER_FRAMES.length), 80);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <text fg={ONBOARD.accent} selectable>
+      {SPINNER_FRAMES[frame]} {hint}
     </text>
   );
 }
@@ -114,7 +146,7 @@ function ChatMessageBlock({
       }
     }
     const showSpinnerForMissingText =
-      isStreamingAssistant && !assistantHasVisibleText(line) && nonEmpty.length > 0;
+      isStreamingAssistant && !assistantHasVisibleText(line) && nonEmpty.length > 0 && !line.segments.some((s) => s.kind === "tool-hint");
 
     return (
       <box flexDirection="column" gap={0} marginBottom={1}>
@@ -138,6 +170,8 @@ function ChatMessageBlock({
                     {s.text}
                   </text>
                 </box>
+              ) : s.kind === "tool-hint" ? (
+                <ToolHintLine key={i} hint={s.text} />
               ) : s.kind === "tool" ? (
                 <box key={i} flexDirection="column" padding={0} gap={0}>
                   <markdown

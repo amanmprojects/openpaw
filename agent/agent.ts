@@ -179,6 +179,7 @@ async function runTurnWithAgent(
     let accumulated = "";
     const toolNameByCallId = new Map<string, string>();
     const toolStatuses = new Map<string, { toolName: string; status: "pending" | "ok" | "error" | "denied" }>();
+    const partialInputByCallId = new Map<string, string>();
 
     const stream = await createAgentUIStream({
       agent,
@@ -207,6 +208,22 @@ async function runTurnWithAgent(
         toolStatuses.set(chunk.toolCallId, {
           toolName: chunk.toolName,
           status: "pending",
+        });
+        partialInputByCallId.set(chunk.toolCallId, "");
+        onToolStatus?.({
+          type: "tool_starting",
+          toolCallId: chunk.toolCallId,
+          toolName: chunk.toolName,
+        });
+      } else if (chunk.type === "tool-input-delta") {
+        const toolName = toolNameByCallId.get(chunk.toolCallId) ?? "tool";
+        const prev = partialInputByCallId.get(chunk.toolCallId) ?? "";
+        partialInputByCallId.set(chunk.toolCallId, prev + chunk.inputTextDelta);
+        onToolStatus?.({
+          type: "tool_input_delta",
+          toolCallId: chunk.toolCallId,
+          toolName,
+          delta: chunk.inputTextDelta,
         });
       } else if (chunk.type === "tool-input-available") {
         toolNameByCallId.set(chunk.toolCallId, chunk.toolName);

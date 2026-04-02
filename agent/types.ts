@@ -32,6 +32,8 @@ export type ToolExecutionPolicy = {
  * High-signal tool lifecycle events from the UI message stream (for channels like Telegram).
  */
 export type ToolStreamEvent =
+  | { type: "tool_starting"; toolCallId: string; toolName: string }
+  | { type: "tool_input_delta"; toolCallId: string; toolName: string; delta: string }
   | { type: "tool_input"; toolCallId: string; toolName: string; input: unknown }
   | { type: "tool_output"; toolCallId: string; toolName: string; output: unknown }
   | { type: "tool_error"; toolCallId: string; toolName: string; errorText: string }

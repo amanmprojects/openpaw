@@ -3,7 +3,7 @@
  * @see https://core.telegram.org/bots/api#html-style
  */
 
-import { truncateJson } from "../../agent/tool-stream-format";
+import { truncateJson, extractToolHint } from "../../agent/tool-stream-format";
 import { toolInputToYamlLike, toolOutputToYamlLike } from "../../agent/tool-yaml-like";
 import type { ToolStreamEvent } from "../../agent/types";
 
@@ -135,4 +135,12 @@ export function formatToolStreamEventHtml(ev: ToolStreamEvent): string {
     default:
       return "";
   }
+}
+
+/**
+ * Short Telegram HTML message shown while tool input is streaming in.
+ * Updates as more of the tool input becomes available.
+ */
+export function formatToolHintHtml(toolName: string, accumulatedDelta: string): string {
+  return `<i>🔄 ${escapeTelegramHtml(extractToolHint(toolName, accumulatedDelta))}</i>`;
 }

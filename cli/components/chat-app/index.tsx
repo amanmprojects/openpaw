@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { SessionMode } from "../../../agent";
 import { loadSessionMessages, loadSessionMetadata, updateSessionMetadata } from "../../../agent/session-store";
-import { formatToolStreamEventForTui } from "../../../agent/tool-stream-format";
+import { formatToolStreamEventForTui, extractToolHint } from "../../../agent/tool-stream-format";
 import type { AgentRuntime } from "../../../agent/agent";
 import type { SessionId, ToolStreamEvent } from "../../../agent/types";
 import {
@@ -41,6 +41,7 @@ import {
   assistantLineIsEmpty,
   assistantSegmentsAreBlank,
   defaultWelcomeLines,
+  replaceToolHint,
   transcriptMarkdownWidth,
 } from "./transcript";
 
@@ -370,6 +371,7 @@ export function ChatApp({
       setLines((prev) => [...prev, { role: "user", text }]);
 
       let assistantSegments: AssistantSegment[] = [];
+      const toolHintAccum = new Map<string, string>();
 
       setLines((prev) => [...prev, { role: "assistant", segments: [] }]);
 
@@ -406,17 +408,43 @@ export function ChatApp({
             });
           },
           onToolStatus: (ev: ToolStreamEvent) => {
-            const line = formatToolStreamEventForTui(ev);
-            if (!line) {
-              return;
+            if (ev.type === "tool_starting") {
+              toolHintAccum.set(ev.toolCallId, "");
+              const initialHint = extractToolHint(ev.toolName, "");
+              assistantSegments = appendAssistantSegment(
+                assistantSegments,
+                "tool-hint",
+                initialHint,
+                ev.toolCallId,
+              );
+            } else if (ev.type === "tool_input_delta") {
+              const prev = toolHintAccum.get(ev.toolCallId) ?? "";
+              toolHintAccum.set(ev.toolCallId, prev + ev.delta);
+              const hint = extractToolHint(ev.toolName, toolHintAccum.get(ev.toolCallId) ?? "");
+              assistantSegments = replaceToolHint(assistantSegments, ev.toolCallId, hint);
+            } else if (ev.type === "tool_input") {
+              toolHintAccum.delete(ev.toolCallId);
+              const line = formatToolStreamEventForTui(ev);
+              if (!line) return;
+              const hintIdx = assistantSegments.findIndex(
+                (s) => s.kind === "tool-hint" && s.toolCallId === ev.toolCallId,
+              );
+              if (hintIdx !== -1) {
+                assistantSegments = assistantSegments.map((s, i) =>
+                  i === hintIdx ? { kind: "tool", text: line, toolCallId: undefined } : s,
+                );
+              } else {
+                const lastSeg = assistantSegments[assistantSegments.length - 1];
+                const prefix = lastSeg?.kind === "tool" ? "\n" : "";
+                assistantSegments = appendAssistantSegment(assistantSegments, "tool", `${prefix}${line}`);
+              }
+            } else {
+              const line = formatToolStreamEventForTui(ev);
+              if (!line) return;
+              const lastSeg = assistantSegments[assistantSegments.length - 1];
+              const prefix = lastSeg?.kind === "tool" ? "\n" : "";
+              assistantSegments = appendAssistantSegment(assistantSegments, "tool", `${prefix}${line}`);
             }
-            const lastSeg = assistantSegments[assistantSegments.length - 1];
-            const prefix = lastSeg?.kind === "tool" ? "\n" : "";
-            assistantSegments = appendAssistantSegment(
-              assistantSegments,
-              "tool",
-              `${prefix}${line}`,
-            );
             const snapshot = assistantSegments;
             setLines((prev) => {
               const next = [...prev];

@@ -1,3 +1,6 @@
+/**
+ * Telegram delivery runtime: producer/consumer queue that streams assistant replies to a chat.
+ */
 import type { Context } from "grammy";
 import { GrammyError } from "grammy";
 import { logInfo, logWarn } from "../../lib/log";
@@ -11,6 +14,7 @@ import {
   formatReasoningPhaseHtml,
   formatStandaloneToolResultHtml,
   formatToolCallCompleteHtml,
+  formatToolHintHtml,
   formatToolInputOnlyHtml,
 } from "./message-html";
 
@@ -29,7 +33,8 @@ export type TelegramDeliveryMetrics = {
 
 type Queued =
   | { t: "d"; phase: "text" | "reasoning"; v: string }
-  | { t: "tool"; ev: ToolStreamEvent };
+  | { t: "tool"; ev: ToolStreamEvent }
+  | { t: "tool-hint"; toolCallId: string; toolName: string; hint: string };
 
 export type TelegramStreamHandlers = {
   onTextDelta: (delta: string) => void;
@@ -290,6 +295,7 @@ export async function deliverStreamingReply(
   const queue: Queued[] = [];
   let producerDone = false;
   let producerError: unknown;
+  const hintAccum = new Map<string, string>();
 
   const handlers: TelegramStreamHandlers = {
     onTextDelta: (delta) => {
@@ -305,7 +311,23 @@ export async function deliverStreamingReply(
     },
     onToolStatus: prefs.showToolCalls
       ? (ev) => {
-          queue.push({ t: "tool", ev });
+          if (ev.type === "tool_starting") {
+            hintAccum.set(ev.toolCallId, "");
+            queue.push({ t: "tool-hint", toolCallId: ev.toolCallId, toolName: ev.toolName, hint: "" });
+          } else if (ev.type === "tool_input_delta") {
+            const prev = hintAccum.get(ev.toolCallId) ?? "";
+            const accumulated = prev + ev.delta;
+            hintAccum.set(ev.toolCallId, accumulated);
+            queue.push({
+              t: "tool-hint",
+              toolCallId: ev.toolCallId,
+              toolName: ev.toolName,
+              hint: accumulated,
+            });
+          } else {
+            hintAccum.delete(ev.toolCallId);
+            queue.push({ t: "tool", ev });
+          }
         }
       : undefined,
   };
@@ -326,6 +348,7 @@ export async function deliverStreamingReply(
     string,
     { messageId: number; toolName: string; input: unknown }
   >();
+  const toolHintBubble = new Map<string, { messageId: number; lastHint: string; lastEdit: number }>();
 
   const finalizePhase = async (): Promise<void> => {
     const cur = active.current;
@@ -502,13 +525,31 @@ export async function deliverStreamingReply(
           const ev = item.ev;
           if (ev.type === "tool_input") {
             const toolHtml = formatToolInputOnlyHtml(ev.toolName, ev.input);
-            const mid = await replyRobust(ctx, toolHtml, metrics, "HTML");
-            if (mid !== undefined) {
+            const existingHint = toolHintBubble.get(ev.toolCallId);
+            if (existingHint) {
+              await sendOrEditRobust(
+                ctx,
+                chatId,
+                toolHtml,
+                existingHint.messageId,
+                metrics,
+                "HTML",
+              );
+              toolHintBubble.delete(ev.toolCallId);
               pendingToolBubble.set(ev.toolCallId, {
-                messageId: mid,
+                messageId: existingHint.messageId,
                 toolName: ev.toolName,
                 input: ev.input,
               });
+            } else {
+              const mid = await replyRobust(ctx, toolHtml, metrics, "HTML");
+              if (mid !== undefined) {
+                pendingToolBubble.set(ev.toolCallId, {
+                  messageId: mid,
+                  toolName: ev.toolName,
+                  input: ev.input,
+                });
+              }
             }
             sentAny = true;
           } else {
@@ -529,10 +570,45 @@ export async function deliverStreamingReply(
               );
               pendingToolBubble.delete(ev.toolCallId);
             } else {
-              const orphan = formatStandaloneToolResultHtml(ev);
-              if (orphan) {
-                await replyRobust(ctx, orphan, metrics, "HTML");
+              const hintMsg = toolHintBubble.get(ev.toolCallId);
+              if (hintMsg) {
+                const orphan = formatStandaloneToolResultHtml(ev);
+                if (orphan) {
+                  await sendOrEditRobust(ctx, chatId, orphan, hintMsg.messageId, metrics, "HTML");
+                }
+                toolHintBubble.delete(ev.toolCallId);
+              } else {
+                const orphan = formatStandaloneToolResultHtml(ev);
+                if (orphan) {
+                  await replyRobust(ctx, orphan, metrics, "HTML");
+                }
               }
+            }
+            sentAny = true;
+          }
+          continue;
+        }
+
+        if (item.t === "tool-hint") {
+          const existing = toolHintBubble.get(item.toolCallId);
+          const now = Date.now();
+          if (existing) {
+            if (item.hint !== existing.lastHint && now - existing.lastEdit >= EDIT_INTERVAL_MS) {
+              const html = formatToolHintHtml(item.toolName, item.hint);
+              await sendOrEditRobust(ctx, chatId, html, existing.messageId, metrics, "HTML");
+              existing.lastHint = item.hint;
+              existing.lastEdit = now;
+            }
+          } else {
+            await finalizePhase();
+            const html = formatToolHintHtml(item.toolName, item.hint);
+            const mid = await replyRobust(ctx, html, metrics, "HTML");
+            if (mid !== undefined) {
+              toolHintBubble.set(item.toolCallId, {
+                messageId: mid,
+                lastHint: item.hint,
+                lastEdit: now,
+              });
             }
             sentAny = true;
           }
