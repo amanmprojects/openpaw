@@ -150,13 +150,13 @@ const TOOL_FALLBACK_LABELS: Record<string, string> = {
 /**
  * Regex that matches a JSON key:value pair where the value is a complete quoted string.
  */
-const RE_COMPLETE = (key: string) => new RegExp(`"${key}"\\s*:\\s*"([^"]+)"`);
+const RE_COMPLETE = (key: string) => new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`);
 
 /**
  * Regex that matches a JSON key:value pair where the value is still streaming
  * (opening quote present, closing quote may be missing).
  */
-const RE_PARTIAL = (key: string) => new RegExp(`"${key}"\\s*:\\s*"([^"]*)$`);
+const RE_PARTIAL = (key: string) => new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*(?:\\\\)?)$`);
 
 /**
  * Tries a complete match first, then falls back to a partial match.
@@ -183,7 +183,7 @@ export function extractToolHint(toolName: string, accumulatedDelta: string): str
   if (toolName === "bash") {
     const raw = grab(accumulatedDelta, "command");
     if (raw) {
-      const cmd = raw.length > 50 ? `${raw.slice(0, 47)}...` : raw;
+      const cmd = raw.length > 50 ? `${raw.slice(0, 47)}…` : raw;
       return `Running \`${cmd}\``;
     }
     return "Running command";
