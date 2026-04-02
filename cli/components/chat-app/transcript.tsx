@@ -45,6 +45,21 @@ export function replaceToolHint(
 }
 
 /**
+ * Updates a tool-hint segment (matched by toolCallId) while preserving hint rendering.
+ */
+export function updateToolHint(
+  segments: AssistantSegment[],
+  toolCallId: string,
+  newText: string,
+): AssistantSegment[] {
+  return segments.map((s) =>
+    s.kind === "tool-hint" && s.toolCallId === toolCallId
+      ? { ...s, text: newText }
+      : s,
+  );
+}
+
+/**
  * True when an in-progress assistant row has no visible characters yet.
  */
 export function assistantLineIsEmpty(line: Extract<ChatLine, { role: "assistant" }>): boolean {
