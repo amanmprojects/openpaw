@@ -27,13 +27,20 @@ import { formatTelegramSessionLabel } from "./session-label";
 import { replyWithSessionsList } from "./sessions-list-reply";
 import { telegramSessionKey } from "./session-key";
 import { deliverStreamingReply } from "./stream-delivery";
+import { startCronSchedulerIfEnabled } from "../cron/scheduler";
 
 /**
  * Registers Telegram handlers for commands and plain-text forwarding.
+ *
+ * @param runSerialized Per-chat async queue; shared with the cron scheduler when provided from the adapter.
  */
-export function wireTelegramBot(bot: Bot, ctx: OpenPawGatewayContext): void {
+export function wireTelegramBot(
+  bot: Bot,
+  ctx: OpenPawGatewayContext,
+  runSerialized: ReturnType<typeof createTelegramMessageQueue>,
+): void {
   const { runtime } = ctx;
-  const runNext = createTelegramMessageQueue();
+  const runNext = runSerialized;
 
   bot.command("new", async (grammyCtx) => {
     const chatId = grammyCtx.chat?.id;
@@ -243,12 +250,15 @@ export function createTelegramChannelAdapter(ctx: OpenPawGatewayContext): Channe
     );
   }
 
+  const runSerialized = createTelegramMessageQueue();
+
   return {
     id: "telegram",
     run: async () => {
       const bot = new Bot(token);
       await registerOpenPawBotCommands(bot);
-      wireTelegramBot(bot, ctx);
+      wireTelegramBot(bot, ctx, runSerialized);
+      startCronSchedulerIfEnabled(ctx, bot, runSerialized);
       logInfo("telegram.channel_starting", { mode: "long_polling" });
       await bot.start();
     },
