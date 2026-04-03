@@ -13,6 +13,10 @@ function getGatewayDir(): string {
   return join(getOpenPawHome(), "gateway");
 }
 
+function getCronDirInternal(): string {
+  return join(getOpenPawHome(), "cron");
+}
+
 /**
  * Absolute path to the YAML config file, typically `~/.openpaw/config.yaml`.
  */
@@ -79,6 +83,42 @@ export function getTurnsDir(): string {
  */
 export function getGatewayStateDir(): string {
   return getGatewayDir();
+}
+
+/**
+ * Directory for persisted cron jobs and run logs (`~/.openpaw/cron`).
+ */
+export function getCronDir(): string {
+  return getCronDirInternal();
+}
+
+/**
+ * Path to the cron jobs manifest (`~/.openpaw/cron/jobs.json`).
+ */
+export function getCronJobsPath(): string {
+  return join(getCronDirInternal(), "jobs.json");
+}
+
+/**
+ * Directory for per-job append-only run logs (`~/.openpaw/cron/runs/`).
+ */
+export function getCronRunsDir(): string {
+  return join(getCronDirInternal(), "runs");
+}
+
+/**
+ * Ensures `~/.openpaw/cron` and `runs/` exist.
+ */
+export function ensureCronDirectories(): void {
+  ensureConfigDir();
+  const cronDir = getCronDirInternal();
+  const runsDir = join(cronDir, "runs");
+  if (!existsSync(cronDir)) {
+    mkdirSync(cronDir, { recursive: true });
+  }
+  if (!existsSync(runsDir)) {
+    mkdirSync(runsDir, { recursive: true });
+  }
 }
 
 /**
