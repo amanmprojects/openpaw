@@ -55,6 +55,7 @@
     "@opentui/react": "^0.1.90",
     "ai": "^6.0.138",
     "commander": "^14.0.3",
+    "croner": "^10.0.1",
     "grammy": "^1.41.1",
     "react": "^19.2.4",
     "tg-markdown-converter": "^1.1.1",
