@@ -20,8 +20,11 @@ import {
   startGatewayDaemon,
   stopGatewayDaemon,
 } from "../gateway/daemon-manager";
+import { registerCronCommands } from "./cron";
 
 program.version(getOpenPawVersion()).description("OpenPaw");
+
+registerCronCommands(program);
 
 program
   .command("reset")

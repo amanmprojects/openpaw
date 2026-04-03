@@ -28,10 +28,25 @@ export const PERSONALITIES = ["Assistant", "Meowl", "Coder"] as const;
 export type Personality = (typeof PERSONALITIES)[number];
 
 /**
+ * Optional gateway cron scheduler settings (persisted in `config.yaml`).
+ */
+export interface CronConfig {
+  /** When false, the gateway does not start the cron tick loop. Defaults to true when omitted. */
+  enabled?: boolean;
+  /** Seconds between due-job checks (default 60). */
+  tickSeconds?: number;
+  /** Upper bound on overlapping cron executions (default 2). */
+  maxConcurrentRuns?: number;
+  /** Max lines to keep per job run log before truncating from the start (default 5000). */
+  maxRunLogLines?: number;
+}
+
+/**
  * Full OpenPaw user configuration as represented on disk and in the onboarding flow.
  */
 export interface OpenPawConfig {
   provider: ProviderConfig;
   channels?: ChannelsConfig;
   personality: Personality;
+  cron?: CronConfig;
 }
