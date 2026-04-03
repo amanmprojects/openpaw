@@ -3,6 +3,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { Bot } from "grammy";
+import { GrammyError } from "grammy";
 import { logError, logInfo } from "../../lib/log";
 import type { OpenPawGatewayContext } from "../bootstrap";
 import { deliverCronTurnToTelegram } from "../telegram/outbound-cron-reply";
@@ -26,6 +27,12 @@ export function formatCronUserPayload(payload: string): string {
 }
 
 function isTransientFailure(err: unknown): boolean {
+  if (err instanceof GrammyError && typeof err.error_code === "number") {
+    const code = err.error_code;
+    if (code === 429 || code === 502 || code === 503 || code === 529) {
+      return true;
+    }
+  }
   const msg = err instanceof Error ? err.message : String(err);
   const lower = msg.toLowerCase();
   return (
@@ -46,6 +53,34 @@ function isTransientFailure(err: unknown): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Computes the persisted job row after a run. Returns `null` when the job row should be removed.
+ */
+export function computeUpdatedJobAfterRun(
+  job: CronJob,
+  finishedAt: string,
+  outcome: "ok" | "error",
+): CronJob | null {
+  if (job.schedule.kind === "at") {
+    if (outcome === "ok" && job.deleteAfterSuccess) {
+      return null;
+    }
+    return {
+      ...job,
+      lastRunAt: finishedAt,
+      nextRunAt: null,
+      enabled: false,
+    };
+  }
+  const nextFire = nextCronRunAfterCompletion(job.schedule, new Date(finishedAt));
+  return {
+    ...job,
+    lastRunAt: finishedAt,
+    nextRunAt: nextFire ? nextFire.toISOString() : null,
+    enabled: nextFire ? job.enabled : false,
+  };
 }
 
 export type CronExecutionResult = {
@@ -106,35 +141,15 @@ export async function executeCronJob(
       );
 
       mutateCronJobs((file) => {
-        const jobs = file.jobs.filter((j) => j.id !== job.id);
         const prev = file.jobs.find((j) => j.id === job.id);
         if (!prev) {
           return { result: undefined, next: file };
         }
-
-        if (prev.schedule.kind === "at") {
-          if (prev.deleteAfterSuccess) {
-            return {
-              result: undefined,
-              next: { version: 1, jobs },
-            };
-          }
-          const updated: CronJob = {
-            ...prev,
-            lastRunAt: finishedAt,
-            nextRunAt: null,
-            enabled: false,
-          };
-          return { result: undefined, next: { version: 1, jobs: [...jobs, updated] } };
+        const updated = computeUpdatedJobAfterRun(prev, finishedAt, "ok");
+        const jobs = file.jobs.filter((j) => j.id !== job.id);
+        if (updated === null) {
+          return { result: undefined, next: { version: 1, jobs } };
         }
-
-        const nextFire = nextCronRunAfterCompletion(prev.schedule, new Date(finishedAt));
-        const updated: CronJob = {
-          ...prev,
-          lastRunAt: finishedAt,
-          nextRunAt: nextFire ? nextFire.toISOString() : null,
-          enabled: nextFire ? prev.enabled : false,
-        };
         return { result: undefined, next: { version: 1, jobs: [...jobs, updated] } };
       });
 
@@ -158,25 +173,12 @@ export async function executeCronJob(
   );
 
   mutateCronJobs((file) => {
-    const nextJobs = file.jobs.map((j) => {
+    const nextJobs = file.jobs.flatMap((j) => {
       if (j.id !== job.id) {
-        return j;
+        return [j];
       }
-      if (j.schedule.kind === "at") {
-        return {
-          ...j,
-          lastRunAt: finishedAt,
-          nextRunAt: null,
-          enabled: false,
-        };
-      }
-      const nextFire = nextCronRunAfterCompletion(j.schedule, new Date(finishedAt));
-      return {
-        ...j,
-        lastRunAt: finishedAt,
-        nextRunAt: nextFire ? nextFire.toISOString() : null,
-        enabled: nextFire ? j.enabled : false,
-      };
+      const updated = computeUpdatedJobAfterRun(j, finishedAt, "error");
+      return updated === null ? [] : [updated];
     });
     return { result: undefined, next: { version: 1, jobs: nextJobs } };
   });

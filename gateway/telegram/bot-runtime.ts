@@ -258,9 +258,10 @@ export function createTelegramChannelAdapter(ctx: OpenPawGatewayContext): Channe
       const bot = new Bot(token);
       await registerOpenPawBotCommands(bot);
       wireTelegramBot(bot, ctx, runSerialized);
-      startCronSchedulerIfEnabled(ctx, bot, runSerialized);
       logInfo("telegram.channel_starting", { mode: "long_polling" });
       await bot.start();
+      // Cron runs only after long polling is active so scheduled sends occur alongside a live bot session.
+      void startCronSchedulerIfEnabled(ctx, bot, runSerialized);
     },
   };
 }

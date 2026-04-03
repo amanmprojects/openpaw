@@ -64,3 +64,11 @@ export const cronRunRecordSchema = z.object({
 });
 
 export type CronRunRecord = z.infer<typeof cronRunRecordSchema>;
+
+/**
+ * Parses and validates a JSON value as {@link CronRunRecord}, or returns null.
+ */
+export function parseCronRunRecord(data: unknown): CronRunRecord | null {
+  const result = cronRunRecordSchema.safeParse(data);
+  return result.success ? result.data : null;
+}

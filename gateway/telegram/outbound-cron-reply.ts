@@ -9,6 +9,9 @@ import type { TelegramChatPreferences } from "./chat-preferences";
 
 const CHUNK = 3800;
 
+/** Upper bound on accumulated reasoning text before sending (keeps tail only). */
+const MAX_REASONING_CHARS = 50_000;
+
 function splitBody(s: string, max: number): string[] {
   if (s.length <= max) {
     return [s];
@@ -73,8 +76,12 @@ export async function deliverCronTurnToTelegram(
   const result = await runTurn({
     onTextDelta: () => {},
     onReasoningDelta: (d) => {
-      if (prefs.showReasoning) {
-        reasoningBuf += d;
+      if (!prefs.showReasoning || !d) {
+        return;
+      }
+      reasoningBuf += d;
+      if (reasoningBuf.length > MAX_REASONING_CHARS) {
+        reasoningBuf = reasoningBuf.slice(-MAX_REASONING_CHARS);
       }
     },
     onToolStatus: prefs.showToolCalls
@@ -96,7 +103,10 @@ export async function deliverCronTurnToTelegram(
 
   if (prefs.showReasoning && reasoningBuf.trim()) {
     try {
-      await bot.api.sendMessage(chatId, `[Reasoning]\n${reasoningBuf.slice(0, 4000)}`);
+      const maxBody = 3500;
+      const body =
+        reasoningBuf.length > maxBody ? reasoningBuf.slice(-maxBody) : reasoningBuf;
+      await bot.api.sendMessage(chatId, `[Reasoning]\n${body}`);
     } catch {
       // non-fatal
     }

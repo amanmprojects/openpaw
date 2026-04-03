@@ -3,6 +3,7 @@
  */
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { lockSync } from "proper-lockfile";
 import {
   ensureCronDirectories,
   getCronJobsPath,
@@ -13,6 +14,7 @@ import {
   type CronJob,
   type CronJobsFile,
   type CronRunRecord,
+  parseCronRunRecord,
 } from "./types";
 
 const DEFAULT_FILE: CronJobsFile = { version: 1, jobs: [] };
@@ -44,17 +46,36 @@ export function loadCronJobsFile(): CronJobsFile {
  */
 export function saveCronJobsFile(file: CronJobsFile): void {
   ensureCronDirectories();
-  writeFileSync(getCronJobsPath(), JSON.stringify(file, null, 2), "utf8");
+  const path = getCronJobsPath();
+  if (!existsSync(path)) {
+    writeFileSync(path, JSON.stringify(DEFAULT_FILE, null, 2), "utf8");
+  }
+  const release = lockSync(path, { realpath: false });
+  try {
+    writeFileSync(path, JSON.stringify(file, null, 2), "utf8");
+  } finally {
+    release();
+  }
 }
 
 /**
  * Applies a transactional read–modify–write to `jobs.json`.
  */
 export function mutateCronJobs<T>(fn: (file: CronJobsFile) => { next: CronJobsFile; result: T }): T {
-  const current = loadCronJobsFile();
-  const { next, result } = fn(current);
-  saveCronJobsFile(next);
-  return result;
+  ensureCronDirectories();
+  const path = getCronJobsPath();
+  if (!existsSync(path)) {
+    writeFileSync(path, JSON.stringify(DEFAULT_FILE, null, 2), "utf8");
+  }
+  const release = lockSync(path, { realpath: false });
+  try {
+    const current = loadCronJobsFile();
+    const { next, result } = fn(current);
+    writeFileSync(path, JSON.stringify(next, null, 2), "utf8");
+    return result;
+  } finally {
+    release();
+  }
 }
 
 /**
@@ -103,9 +124,6 @@ export function appendCronRunRecord(
   ensureCronDirectories();
   const path = runsPath(jobId);
   appendFileSync(path, `${JSON.stringify(record)}\n`, "utf8");
-  if (!existsSync(path)) {
-    return;
-  }
   try {
     const raw = readFileSync(path, "utf8");
     const lines = raw.split("\n").filter((l) => l.trim().length > 0);
@@ -134,7 +152,11 @@ export function readCronRunRecords(jobId: string, limit: number): CronRunRecord[
     const out: CronRunRecord[] = [];
     for (const line of slice) {
       try {
-        out.push(JSON.parse(line) as CronRunRecord);
+        const parsed: unknown = JSON.parse(line);
+        const row = parseCronRunRecord(parsed);
+        if (row) {
+          out.push(row);
+        }
       } catch {
         // skip corrupt line
       }

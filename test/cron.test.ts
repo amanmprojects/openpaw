@@ -7,10 +7,12 @@ import { join } from "node:path";
 import { getCronJobsPath, getSessionsDir } from "../config/paths";
 import {
   computeInitialNextRunIso,
+  computeUpdatedJobAfterRun,
   loadCronJobsFile,
   nextCronFireAfter,
   nextCronRunAfterCompletion,
   parseAtInstant,
+  parseCronRunRecord,
   parseRelativeAt,
   resolveCronPersistenceSessionId,
   saveCronJobsFile,
@@ -68,6 +70,42 @@ describe("cron schedule parsing", () => {
     expect(isDue("2026-04-03T11:59:00.000Z", now)).toBe(true);
     expect(isDue("2026-04-03T12:01:00.000Z", now)).toBe(false);
     expect(isDue(null, now)).toBe(false);
+  });
+
+  test("parseCronRunRecord rejects invalid shapes", () => {
+    expect(parseCronRunRecord({})).toBeNull();
+    expect(
+      parseCronRunRecord({
+        runId: "550e8400-e29b-41d4-a716-446655440000",
+        jobId: "550e8400-e29b-41d4-a716-446655440001",
+        startedAt: "a",
+        finishedAt: "b",
+        status: "ok",
+      }),
+    ).not.toBeNull();
+  });
+
+  test("computeUpdatedJobAfterRun removes one-shot on success when configured", () => {
+    const job: CronJob = {
+      id: "550e8400-e29b-41d4-a716-446655440010",
+      enabled: true,
+      schedule: { kind: "at", at: "2026-04-04T09:00:00.000Z" },
+      payload: "x",
+      target: { kind: "telegram", chatId: 1 },
+      sessionMode: "main",
+      deleteAfterSuccess: true,
+      nextRunAt: "2026-04-04T09:00:00.000Z",
+      lastRunAt: null,
+      createdAt: "2026-04-03T00:00:00.000Z",
+    };
+    expect(computeUpdatedJobAfterRun(job, "2026-04-04T09:01:00.000Z", "ok")).toBeNull();
+    expect(
+      computeUpdatedJobAfterRun(
+        { ...job, deleteAfterSuccess: false },
+        "2026-04-04T09:01:00.000Z",
+        "ok",
+      )?.enabled,
+    ).toBe(false);
   });
 });
 
