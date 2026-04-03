@@ -1,3 +1,6 @@
+/**
+ * Zod schemas and helpers for validating and serializing `config.yaml`.
+ */
 import { parse, stringify } from "yaml";
 import { z } from "zod";
 import { PERSONALITIES, type OpenPawConfig } from "./types";
@@ -21,6 +24,14 @@ export const openPawConfigSchema = z.object({
     })
     .optional(),
   personality: z.enum(PERSONALITIES),
+  cron: z
+    .object({
+      enabled: z.boolean().optional(),
+      tickSeconds: z.number().finite().positive().max(3600).optional(),
+      maxConcurrentRuns: z.number().finite().int().min(1).max(32).optional(),
+      maxRunLogLines: z.number().finite().int().min(100).max(100_000).optional(),
+    })
+    .optional(),
 });
 
 export type ConfigValidationResult =
