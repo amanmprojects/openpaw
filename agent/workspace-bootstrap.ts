@@ -1,7 +1,11 @@
+/**
+ * Creates the OpenPaw workspace tree, default markdown files, bundled skills, and cron directories.
+ */
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  ensureCronDirectories,
   ensureWorkspaceDirectories,
   getWorkspaceRoot,
 } from "../config/paths";
@@ -66,6 +70,7 @@ function seedBundledFindSkillsIfAbsent(workspaceRoot: string): void {
  */
 export function ensureWorkspaceLayout(): void {
   ensureWorkspaceDirectories();
+  ensureCronDirectories();
   const root = getWorkspaceRoot();
   const memoriesDir = join(root, "memories");
   if (!existsSync(memoriesDir)) {
